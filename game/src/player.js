@@ -2,7 +2,7 @@
 // cars, punching and shooting, and the health that ties it together.
 
 import { TUNE } from './config.js';
-import { resolveCircle, hitBuilding } from './world.js';
+import { resolveCircle } from './world.js';
 import { driveCar } from './vehicles.js';
 import { addWanted } from './police.js';
 import { fireBullet, playerPunch } from './combat.js';
@@ -44,9 +44,8 @@ export function updatePlayer(G, dt) {
   p.x += mv.x * speed * dt;
   p.y += mv.y * speed * dt;
   if (mv.x !== 0 || mv.y !== 0) {
-    // Face where the mouse aims when the player is fighting, else the run.
-    if (G.aiming) p.angle = p.aimAngle;
-    else p.angle = Math.atan2(mv.y, mv.x);
+    // Face where the mouse aims when fighting, else the run direction.
+    p.angle = G.aiming ? p.aimAngle : Math.atan2(mv.y, mv.x);
   } else if (G.aiming) {
     p.angle = p.aimAngle;
   }
@@ -81,8 +80,7 @@ function updateDriving(G, dt) {
   const car = G.playerCar;
   const mv = input.moveVector();
   const throttle = mv.y < 0 ? 1 : mv.y > 0 ? -1 : 0;
-  const steer = mv.x;
-  driveCar(G, car, dt, throttle, steer);
+  driveCar(G, car, dt, throttle, mv.x);
   p.x = car.x;
   p.y = car.y;
   p.angle = car.angle;
@@ -103,26 +101,35 @@ function updateDriving(G, dt) {
   if (input.wasPressed('f')) G.audio.blip(330, 0.12, 'square', 0.12);
 }
 
-function tryEnterCar(G) {
+function nearestCar(G, maxD) {
   const p = G.player;
   let best = null;
-  let bestD = 56;
+  let bestD = maxD;
   for (const car of G.cars) {
     if (car.kind === 'police') continue;
     const d = Math.hypot(car.x - p.x, car.y - p.y);
-    if (d < bestD) { best = car; bestD = d; }
+    if (d < bestD) {
+      best = car;
+      bestD = d;
+    }
   }
-  if (!best) return;
-  if (best.driver) {
+  return best;
+}
+
+function tryEnterCar(G) {
+  const p = G.player;
+  const car = nearestCar(G, 56);
+  if (!car) return;
+  if (car.driver) {
     // Steal it: the driver bails out and runs.
-    const a = Math.atan2(p.y - best.y, p.x - best.x);
+    const a = Math.atan2(p.y - car.y, p.x - car.x);
     G.peds.push({
-      x: best.x + Math.cos(a) * 26, y: best.y + Math.sin(a) * 26,
+      x: car.x + Math.cos(a) * 26, y: car.y + Math.sin(a) * 26,
       angle: a, speed: 60, color: '#7ec850', state: 'flee', axis: 'h', dir: 1,
-      fleeX: best.x, fleeY: best.y, dead: false, deadTimer: 0,
+      fleeX: car.x, fleeY: car.y, dead: false, deadTimer: 0,
       taxiWait: false, turnCooldown: 0, stepPhase: 0,
     });
-    best.driver = false;
+    car.driver = false;
     addWanted(G, TUNE.stealOccupied, 'stole a car');
     G.stoleCar = true;
     G.audio.blip(520, 0.1, 'sawtooth', 0.12);
@@ -132,8 +139,8 @@ function tryEnterCar(G) {
       || G.policeCars.some((c) => Math.hypot(c.x - p.x, c.y - p.y) < 320);
     if (copNear) addWanted(G, TUNE.stealParked, 'stole a parked car');
   }
-  best.kind = 'player';
-  G.playerCar = best;
+  car.kind = 'player';
+  G.playerCar = car;
   G.audio.engine(true, 0);
   G.audio.blip(660, 0.08);
 }

@@ -3,11 +3,11 @@
 // sees: health, money, wanted stars, clock, radio, minimap, objective and
 // the off-screen marker arrow.
 
-import { WORLD_W, WORLD_H, streetPos, N, ROAD } from './config.js';
+import { WORLD_W, WORLD_H, streetPos, N } from './config.js';
 import { starsFor } from './police.js';
 import { missionMarker, missionObjective } from './missions.js';
 
-function star(ctx, x, y, r, filled) {
+function starShape(ctx, x, y, r, filled) {
   ctx.beginPath();
   for (let i = 0; i < 5; i++) {
     const a = -Math.PI / 2 + (i * Math.PI * 2) / 5;
@@ -23,19 +23,23 @@ function star(ctx, x, y, r, filled) {
   ctx.stroke();
 }
 
-function bar(ctx, x, y, w, h, frac, color, bg = 'rgba(0,0,0,0.55)') {
-  ctx.fillStyle = bg;
+function bar(ctx, x, y, w, h, frac, color) {
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
   ctx.fillRect(x - 2, y - 2, w + 4, h + 4);
   ctx.fillStyle = color;
   ctx.fillRect(x, y, w * Math.max(0, Math.min(1, frac)), h);
 }
 
+function panel(ctx, x, y, w, h) {
+  ctx.fillStyle = 'rgba(0,0,0,0.45)';
+  ctx.fillRect(x, y, w, h);
+}
+
 export function drawHUD(ctx, G, W, H) {
   const p = G.player;
   ctx.textBaseline = 'alphabetic';
-  // Top-left: health and money.
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
-  ctx.fillRect(14, 14, 250, 64);
+  // Top-left: money, health, progress.
+  panel(ctx, 14, 14, 250, 64);
   ctx.fillStyle = '#fff';
   ctx.font = 'bold 20px system-ui, sans-serif';
   ctx.fillText(`$${p.money.toLocaleString('en-US')}`, 26, 40);
@@ -46,9 +50,9 @@ export function drawHUD(ctx, G, W, H) {
   ctx.fillStyle = '#cfe3ff';
   ctx.fillText(`Missions ${G.missionsDone.filter(Boolean).length}/5   Packages ${G.collectibles.filter((c) => c.taken).length}/10`, 26, 72);
 
-  // Top-right: wanted stars, clock, radio.
+  // Top-right: wanted stars, clock, radio station.
   const stars = starsFor(G.wanted);
-  for (let i = 0; i < 5; i++) star(ctx, W - 150 + i * 30, 34, 13, i < stars);
+  for (let i = 0; i < 5; i++) starShape(ctx, W - 150 + i * 30, 34, 13, i < stars);
   const hh = Math.floor(G.clockMinutes / 60) % 24;
   const mm = Math.floor(G.clockMinutes % 60);
   ctx.fillStyle = '#fff';
@@ -63,24 +67,18 @@ export function drawHUD(ctx, G, W, H) {
   // Bottom-left: minimap.
   drawMinimap(ctx, G, 16, H - 206, 190);
 
-  // Bottom-right: speed, with the controls hint on its own line above it.
+  // Bottom-right: controls hint, then speed.
   ctx.font = '11px system-ui, sans-serif';
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
   const hint = 'WASD move/drive · E car · F punch · Click shoot · Esc pause';
   const hw = ctx.measureText(hint).width;
-  ctx.fillRect(W - hw - 34, H - 96, hw + 20, 20);
+  panel(ctx, W - hw - 34, H - 96, hw + 20, 20);
   ctx.fillStyle = '#cfe3ff';
   ctx.textAlign = 'right';
   ctx.fillText(hint, W - 24, H - 82);
-  ctx.fillStyle = 'rgba(0,0,0,0.45)';
-  ctx.fillRect(W - 216, H - 64, 202, 50);
+  panel(ctx, W - 216, H - 64, 202, 50);
   ctx.fillStyle = '#fff';
   ctx.font = 'bold 22px system-ui, sans-serif';
-  if (G.playerCar) {
-    ctx.fillText(`${Math.round(Math.abs(G.playerCar.speed) * 0.24)} MPH`, W - 26, H - 34);
-  } else {
-    ctx.fillText('ON FOOT', W - 26, H - 34);
-  }
+  ctx.fillText(G.playerCar ? `${Math.round(Math.abs(G.playerCar.speed) * 0.24)} MPH` : 'ON FOOT', W - 26, H - 34);
   ctx.textAlign = 'left';
 
   // Objective line, bottom-centre.
@@ -114,8 +112,7 @@ export function drawHUD(ctx, G, W, H) {
 
   // Centre flash (mission passed, fare complete...).
   if (G.flash) {
-    const a = Math.min(1, G.flash.t);
-    ctx.globalAlpha = a;
+    ctx.globalAlpha = Math.min(1, G.flash.t);
     ctx.font = 'bold 30px system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -126,8 +123,11 @@ export function drawHUD(ctx, G, W, H) {
     ctx.globalAlpha = 1;
   }
 
-  // Off-screen mission marker arrow.
-  const mk = missionMarker(G) || (G.fare ? (G.fare.state === 'pickup' ? { x: G.fare.ped.x, y: G.fare.ped.y, label: 'Pick up the fare' } : { x: G.fare.dest.x, y: G.fare.dest.y, label: 'Drop off the fare' }) : null);
+  // Off-screen mission marker arrow (or the fare marker).
+  const mk = missionMarker(G)
+    || (G.fare ? (G.fare.state === 'pickup'
+      ? { x: G.fare.ped.x, y: G.fare.ped.y, label: 'Pick up the fare' }
+      : { x: G.fare.dest.x, y: G.fare.dest.y, label: 'Drop off the fare' }) : null);
   if (mk) drawMarkerArrow(ctx, G, W, H, mk);
 
   // Red pulse when the heat is on.
@@ -194,12 +194,11 @@ function drawMinimap(ctx, G, x, y, size) {
   ctx.beginPath();
   ctx.rect(x, y, size, size);
   ctx.clip();
-  // Water and sand.
+  // Water, sand, land.
   ctx.fillStyle = '#245a75';
   ctx.fillRect(x, y, size, size);
   ctx.fillStyle = '#d9b380';
   ctx.fillRect(x, y + (3150 * s), size, size - 3150 * s);
-  // Land.
   ctx.fillStyle = '#5d8a4a';
   ctx.fillRect(x, y, size, 3150 * s);
   // Roads.
@@ -225,11 +224,10 @@ function drawMinimap(ctx, G, x, y, size) {
   for (const e of G.enemies) if (e.hp > 0) dot(e.x, e.y, '#e23b3b', 3);
   for (const c of G.policeCars) dot(c.x, c.y, '#3d7dd9', 3);
   const mk = missionMarker(G);
-  if (mk) {
-    const pulse = 3 + Math.sin(G.time * 5) * 1.5;
-    dot(mk.x, mk.y, '#ffd23f', pulse);
+  if (mk) dot(mk.x, mk.y, '#ffd23f', 3 + Math.sin(G.time * 5) * 1.5);
+  if (G.fare) {
+    dot(G.fare.state === 'pickup' ? G.fare.ped.x : G.fare.dest.x, G.fare.state === 'pickup' ? G.fare.ped.y : G.fare.dest.y, '#37c978', 3);
   }
-  if (G.fare) dot(G.fare.state === 'pickup' ? G.fare.ped.x : G.fare.dest.x, G.fare.state === 'pickup' ? G.fare.ped.y : G.fare.dest.y, '#37c978', 3);
   // Player arrow.
   const px = x + G.player.x * s;
   const py = y + G.player.y * s;
@@ -252,6 +250,21 @@ function drawMinimap(ctx, G, x, y, size) {
 
 // ---- Screens ---------------------------------------------------------------
 
+function menuList(ctx, items, selected, cx, y0, step = 44) {
+  items.forEach((label, i) => {
+    const y = y0 + i * step;
+    if (selected === i) {
+      ctx.fillStyle = 'rgba(255,210,63,0.9)';
+      ctx.fillRect(cx - 170, y - 24, 340, 34);
+      ctx.fillStyle = '#111';
+    } else {
+      ctx.fillStyle = '#fff';
+    }
+    ctx.font = 'bold 20px system-ui, sans-serif';
+    ctx.fillText(label, cx, y);
+  });
+}
+
 export function drawTitle(ctx, G, W, H, selected) {
   ctx.fillStyle = 'rgba(10,12,24,0.55)';
   ctx.fillRect(0, 0, W, H);
@@ -266,18 +279,7 @@ export function drawTitle(ctx, G, W, H, selected) {
   ctx.fillStyle = '#cfe3ff';
   ctx.fillText('Steal cars. Outrun the law. Run five jobs. Own the city.', W / 2, H / 2 - 54);
   const items = ['NEW GAME', G.hasSave ? 'CONTINUE' : null, 'HOW TO PLAY'].filter(Boolean);
-  items.forEach((label, i) => {
-    const y = H / 2 + 10 + i * 44;
-    if (selected === i) {
-      ctx.fillStyle = 'rgba(255,210,63,0.9)';
-      ctx.fillRect(W / 2 - 170, y - 24, 340, 34);
-      ctx.fillStyle = '#111';
-    } else {
-      ctx.fillStyle = '#fff';
-    }
-    ctx.font = 'bold 20px system-ui, sans-serif';
-    ctx.fillText(label, W / 2, y);
-  });
+  menuList(ctx, items, selected, W / 2, H / 2 + 10);
   ctx.fillStyle = 'rgba(255,255,255,0.75)';
   ctx.font = '13px system-ui, sans-serif';
   ctx.fillText('WASD move / drive · E enter & steal cars · F punch · Mouse aim, click to shoot', W / 2, H - 64);
@@ -318,16 +320,7 @@ export function drawPause(ctx, G, W, H, selected) {
   ctx.font = 'bold 40px system-ui, sans-serif';
   ctx.fillText('PAUSED', W / 2, H / 2 - 90);
   const items = ['RESUME', 'SAVE GAME', 'RESTART MISSION', 'QUIT TO TITLE'];
-  items.forEach((label, i) => {
-    const y = H / 2 - 30 + i * 42;
-    if (selected === i) {
-      ctx.fillStyle = 'rgba(255,210,63,0.9)';
-      ctx.fillRect(W / 2 - 170, y - 24, 340, 34);
-      ctx.fillStyle = '#111';
-    } else ctx.fillStyle = '#fff';
-    ctx.font = 'bold 20px system-ui, sans-serif';
-    ctx.fillText(label, W / 2, y);
-  });
+  menuList(ctx, items, selected, W / 2, H / 2 - 30, 42);
   ctx.fillStyle = '#cfe3ff';
   ctx.font = '14px system-ui, sans-serif';
   ctx.fillText(`Money $${G.player.money} · Missions ${G.missionsDone.filter(Boolean).length}/5 · Wanted ${starsFor(G.wanted)}★`, W / 2, H / 2 + 160);

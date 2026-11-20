@@ -1,13 +1,13 @@
-// Deterministic randomness for Solmar Bay: mulberry32 plus small helpers.
-// The city, traffic and screenshot scenes all draw from seeded streams, so a
-// given seed always builds the same city and the same staged scene.
+// Seeded randomness for Solmar Bay: mulberry32 and small draw helpers.
+// The city, traffic and staged screenshot scenes all draw from seeded
+// streams, so one seed always builds the same city and the same scene.
 
 export function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+  let state = seed >>> 0;
+  return function next() {
+    state |= 0;
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
@@ -30,10 +30,12 @@ export function chance(rng, p) {
 }
 
 export function shuffle(rng, arr) {
-  const a = arr.slice();
-  for (let i = a.length - 1; i > 0; i--) {
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
+    const tmp = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
   }
-  return a;
+  return out;
 }

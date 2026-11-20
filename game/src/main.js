@@ -3,7 +3,7 @@
 // them together and owns the title screen, pause, busted/wasted and the
 // save in localStorage.
 
-import { WORLD_W, WORLD_H, TUNE } from './config.js';
+import { TUNE } from './config.js';
 import { mulberry32 } from './random.js';
 import { generateWorld, landmarkPos } from './world.js';
 import { AudioEngine } from './audio.js';
@@ -11,7 +11,7 @@ import { Input } from './input.js';
 import { makePlayer, updatePlayer } from './player.js';
 import { updateTraffic, maintainTraffic, collideCars, seedParkedCars } from './vehicles.js';
 import { updatePeds } from './pedestrians.js';
-import { updateWanted, updatePolice, starsFor } from './police.js';
+import { updateWanted, updatePolice } from './police.js';
 import { updateBullets, updateEnemies } from './combat.js';
 import { updateMission, updateFare, updateCollectibles, seedCollectibles, startMission, showDialogue } from './missions.js';
 import { drawWorld } from './render.js';
@@ -25,6 +25,68 @@ const STATIONS = ['SOLMAR FM', 'BAY 98.5', 'VICE WAVE'];
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 
+// One fresh state object. init() below fills the world in.
+function newGameState() {
+  return {
+    world: null,
+    rng: mulberry32(WORLD_SEED),
+    seed: WORLD_SEED,
+    player: null,
+    playerCar: null,
+    cars: [],
+    peds: [],
+    cops: [],
+    policeCars: [],
+    enemies: [],
+    bullets: [],
+    sparks: [],
+    wanted: 0,
+    stars: 0,
+    lastCrime: 99,
+    lastCrimeReason: '',
+    missionsDone: [false, false, false, false, false],
+    mission: null,
+    nextMissionAt: 0,
+    dialogue: null,
+    dialogueQueue: [],
+    fare: null,
+    fareTimer: 24,
+    collectibles: [],
+    camera: { x: 1600, y: 1600, zoom: 1 },
+    time: 0,
+    clockMinutes: 17 * 60 + 40,
+    station: STATIONS[0],
+    stationTimer: 0,
+    shake: 0,
+    flash: null,
+    shotsFired: 0,
+    enemiesKilled: 0,
+    spawnTimer: 0,
+    pedTimer: 0,
+    policeTimer: 0,
+    copTimer: 0,
+    state: 'title',
+    menuSel: 0,
+    hasSave: false,
+    storyComplete: false,
+    storyShown: false,
+    busted: false,
+    wasted: false,
+    viewW: 1280,
+    viewH: 720,
+    lastAimMove: -99,
+    aiming: false,
+    stoleCar: false,
+    audio: new AudioEngine(),
+    input: null,
+    shotReady: false,
+    shotMode: false,
+  };
+}
+
+const G = newGameState();
+G.input = new Input(canvas);
+
 function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
@@ -32,63 +94,6 @@ function resize() {
   G.viewH = canvas.height;
 }
 
-const G = {
-  world: null,
-  rng: mulberry32(WORLD_SEED),
-  seed: WORLD_SEED,
-  player: null,
-  playerCar: null,
-  cars: [],
-  peds: [],
-  cops: [],
-  policeCars: [],
-  enemies: [],
-  bullets: [],
-  sparks: [],
-  wanted: 0,
-  stars: 0,
-  lastCrime: 99,
-  lastCrimeReason: '',
-  missionsDone: [false, false, false, false, false],
-  mission: null,
-  nextMissionAt: 0,
-  dialogue: null,
-  dialogueQueue: [],
-  fare: null,
-  fareTimer: 24,
-  collectibles: [],
-  camera: { x: 1600, y: 1600, zoom: 1 },
-  time: 0,
-  clockMinutes: 17 * 60 + 40,
-  station: STATIONS[0],
-  stationTimer: 0,
-  shake: 0,
-  flash: null,
-  shotsFired: 0,
-  enemiesKilled: 0,
-  spawnTimer: 0,
-  pedTimer: 0,
-  policeTimer: 0,
-  copTimer: 0,
-  state: 'title',
-  menuSel: 0,
-  hasSave: false,
-  storyComplete: false,
-  storyShown: false,
-  busted: false,
-  wasted: false,
-  viewW: 1280,
-  viewH: 720,
-  lastAimMove: -99,
-  aiming: false,
-  stoleCar: false,
-  audio: new AudioEngine(),
-  input: null,
-  shotReady: false,
-  shotMode: false,
-};
-
-G.input = new Input(canvas);
 window.addEventListener('resize', resize);
 window.addEventListener('mousemove', () => { G.lastAimMove = G.time; });
 window.addEventListener('keydown', () => G.audio.ensure());
@@ -258,6 +263,11 @@ function titleItems() {
   return ['NEW GAME', G.hasSave ? 'CONTINUE' : null, 'HOW TO PLAY'].filter(Boolean);
 }
 
+function moveMenu(items, input, down, up) {
+  if (input.wasPressed(down)) G.menuSel = (G.menuSel + 1) % items.length;
+  if (input.wasPressed(up)) G.menuSel = (G.menuSel + items.length - 1) % items.length;
+}
+
 function updateTitle(dt) {
   // Attract mode: the camera drifts over the city while traffic flows.
   G.camera.x += Math.sin(G.time * 0.05) * 12 * dt;
@@ -267,8 +277,9 @@ function updateTitle(dt) {
   updatePeds(G, dt);
   const items = titleItems();
   const input = G.input;
-  if (input.wasPressed('arrowdown') || input.wasPressed('s')) G.menuSel = (G.menuSel + 1) % items.length;
-  if (input.wasPressed('arrowup') || input.wasPressed('w')) G.menuSel = (G.menuSel + items.length - 1) % items.length;
+  moveMenu(items, input, 'arrowdown', 'arrowup');
+  if (input.wasPressed('s')) G.menuSel = (G.menuSel + 1) % items.length;
+  if (input.wasPressed('w')) G.menuSel = (G.menuSel + items.length - 1) % items.length;
   if (input.wasPressed('enter')) {
     const choice = items[G.menuSel];
     G.audio.ensure();
@@ -292,8 +303,9 @@ function updateTitle(dt) {
 function updatePause() {
   const items = ['RESUME', 'SAVE GAME', 'RESTART MISSION', 'QUIT TO TITLE'];
   const input = G.input;
-  if (input.wasPressed('arrowdown') || input.wasPressed('s')) G.menuSel = (G.menuSel + 1) % items.length;
-  if (input.wasPressed('arrowup') || input.wasPressed('w')) G.menuSel = (G.menuSel + items.length - 1) % items.length;
+  moveMenu(items, input, 'arrowdown', 'arrowup');
+  if (input.wasPressed('s')) G.menuSel = (G.menuSel + 1) % items.length;
+  if (input.wasPressed('w')) G.menuSel = (G.menuSel + items.length - 1) % items.length;
   if (input.wasPressed('escape') || input.wasPressed('enter')) {
     const choice = input.wasPressed('escape') ? 'RESUME' : items[G.menuSel];
     if (choice === 'RESUME') G.state = 'play';

@@ -5,7 +5,7 @@
 
 import { WORLD_W, WORLD_H, BEACH_Y, WATER_Y, BLOCK, N, ROAD, PALETTE, streetPos, blockRect } from './config.js';
 
-function rr(ctx, x, y, w, h, r) {
+function roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r);
@@ -13,6 +13,11 @@ function rr(ctx, x, y, w, h, r) {
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
+}
+
+function disc(ctx, x, y, r) {
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
 }
 
 export function drawWorld(ctx, G, W, H) {
@@ -30,7 +35,18 @@ export function drawWorld(ctx, G, W, H) {
   const vy1 = cam.y + H / 2 / zoom + 80;
   const inView = (x, y, w, h) => x + w > vx0 && x < vx1 && y + h > vy0 && y < vy1;
 
-  // Ground: grass, then sand and water along the south edge.
+  drawGround(ctx, G, vx0, vy0, vx1, vy1);
+  drawRoads(ctx, vx0, vy0, vx1, vy1);
+  drawBlocks(ctx, G, inView);
+  drawContainers(ctx, G, inView);
+  drawBuildings(ctx, G, inView);
+  drawTrees(ctx, G, inView);
+  drawPickups(ctx, G, inView);
+  drawActors(ctx, G, inView);
+  ctx.restore();
+}
+
+function drawGround(ctx, G, vx0, vy0, vx1, vy1) {
   ctx.fillStyle = PALETTE.grass;
   ctx.fillRect(vx0, vy0, vx1 - vx0, vy1 - vy0);
   ctx.fillStyle = PALETTE.sand;
@@ -51,8 +67,9 @@ export function drawWorld(ctx, G, W, H) {
     }
     ctx.stroke();
   }
+}
 
-  // Roads: asphalt strips, centre dashes and crosswalks.
+function drawRoads(ctx, vx0, vy0, vx1, vy1) {
   ctx.fillStyle = PALETTE.road;
   for (let i = 0; i <= N; i++) {
     const s = streetPos(i);
@@ -74,15 +91,16 @@ export function drawWorld(ctx, G, W, H) {
     for (let j = 0; j <= N; j++) {
       const cx = streetPos(i);
       const cy = streetPos(j);
-      if (!inView(cx, cy, 1, 1)) continue;
+      if (cx < vx0 || cx > vx1 || cy < vy0 || cy > vy1) continue;
       for (let k = -2; k <= 2; k++) {
         ctx.fillRect(cx - 26 + k * 11, cy - ROAD / 2 + 4, 6, 12);
         ctx.fillRect(cx - 26 + k * 11, cy + ROAD / 2 - 16, 6, 12);
       }
     }
   }
+}
 
-  // Blocks: sidewalks, parks, lots.
+function drawBlocks(ctx, G, inView) {
   for (let j = 0; j < N; j++) {
     for (let i = 0; i < N; i++) {
       const b = blockRect(i, j);
@@ -115,8 +133,9 @@ export function drawWorld(ctx, G, W, H) {
       ctx.strokeRect(lot.x + 18 + k * 46, lot.y + lot.h - 78, 38, 60);
     }
   }
+}
 
-  // Dock containers.
+function drawContainers(ctx, G, inView) {
   for (const c of G.world.containers) {
     if (!inView(c.x, c.y, c.w, c.h)) continue;
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
@@ -128,8 +147,9 @@ export function drawWorld(ctx, G, W, H) {
       ctx.beginPath(); ctx.moveTo(c.x + (c.w / 4) * k, c.y); ctx.lineTo(c.x + (c.w / 4) * k, c.y + c.h); ctx.stroke();
     }
   }
+}
 
-  // Buildings: long sunset shadows, coloured body, roof and details.
+function drawBuildings(ctx, G, inView) {
   for (const b of G.world.buildings) {
     if (!inView(b.x - 40, b.y - 40, b.w + 80, b.h + 80)) continue;
     const sh = b.hgt * 0.35;
@@ -150,31 +170,36 @@ export function drawWorld(ctx, G, W, H) {
       ctx.textAlign = 'left';
     }
   }
+}
 
-  // Trees.
+function drawTrees(ctx, G, inView) {
   for (const t of G.world.trees) {
     if (!inView(t.x - 20, t.y - 20, 40, 40)) continue;
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     ctx.beginPath(); ctx.ellipse(t.x + 4, t.y + 5, t.r, t.r * 0.8, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = t.color;
-    ctx.beginPath(); ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2); ctx.fill();
+    disc(ctx, t.x, t.y, t.r);
+    ctx.fill();
     ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.beginPath(); ctx.arc(t.x - t.r * 0.3, t.y - t.r * 0.3, t.r * 0.45, 0, Math.PI * 2); ctx.fill();
+    disc(ctx, t.x - t.r * 0.3, t.y - t.r * 0.3, t.r * 0.45);
+    ctx.fill();
   }
+}
 
+function drawPickups(ctx, G, inView) {
   // Hidden packages: glowing green cases.
   for (const c of G.collectibles) {
     if (c.taken || !inView(c.x - 30, c.y - 30, 60, 60)) continue;
     const pulse = 0.6 + Math.sin(G.time * 4) * 0.3;
     ctx.fillStyle = `rgba(55,201,120,${pulse})`;
-    ctx.beginPath(); ctx.arc(c.x, c.y, 14, 0, Math.PI * 2); ctx.fill();
+    disc(ctx, c.x, c.y, 14);
+    ctx.fill();
     ctx.fillStyle = '#1d7a44';
-    rr(ctx, c.x - 8, c.y - 6, 16, 12, 3);
+    roundRect(ctx, c.x - 8, c.y - 6, 16, 12, 3);
     ctx.fill();
     ctx.fillStyle = '#ffd23f';
     ctx.fillRect(c.x - 8, c.y - 2, 16, 3);
   }
-
   // Mission parcels.
   const m = G.mission;
   if (m && m.def.steps[m.step] && m.def.steps[m.step].type === 'packages') {
@@ -183,18 +208,20 @@ export function drawWorld(ctx, G, W, H) {
       if (m.stepState[key]) continue;
       const pulse = 0.6 + Math.sin(G.time * 4) * 0.3;
       ctx.fillStyle = `rgba(255,210,63,${pulse})`;
-      ctx.beginPath(); ctx.arc(pt.x, pt.y, 16, 0, Math.PI * 2); ctx.fill();
+      disc(ctx, pt.x, pt.y, 16);
+      ctx.fill();
       ctx.fillStyle = '#8a6d1f';
-      rr(ctx, pt.x - 9, pt.y - 7, 18, 14, 3);
+      roundRect(ctx, pt.x - 9, pt.y - 7, 18, 14, 3);
       ctx.fill();
     }
   }
+}
 
-  // Cars, pedestrians, cops, enemies, player, bullets, sparks.
+function drawActors(ctx, G, inView) {
   for (const car of G.cars) if (inView(car.x - 40, car.y - 40, 80, 80)) drawCar(ctx, car, G.time);
-  for (const ped of G.peds) if (inView(ped.x - 30, ped.y - 30, 60, 60)) drawPed(ctx, ped, G.time);
-  for (const cop of G.cops) if (inView(cop.x - 30, cop.y - 30, 60, 60)) drawCop(ctx, cop, G.time);
-  for (const e of G.enemies) if (e.hp > 0 && inView(e.x - 30, e.y - 30, 60, 60)) drawEnemy(ctx, e, G.time);
+  for (const ped of G.peds) if (inView(ped.x - 30, ped.y - 30, 60, 60)) drawPed(ctx, ped);
+  for (const cop of G.cops) if (inView(cop.x - 30, cop.y - 30, 60, 60)) drawCop(ctx, cop);
+  for (const e of G.enemies) if (e.hp > 0 && inView(e.x - 30, e.y - 30, 60, 60)) drawEnemy(ctx, e);
   drawPlayer(ctx, G);
   ctx.strokeStyle = '#ffe27a';
   ctx.lineWidth = 3;
@@ -206,9 +233,9 @@ export function drawWorld(ctx, G, W, H) {
   }
   for (const s of G.sparks) {
     ctx.fillStyle = '#ffd23f';
-    ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, Math.PI * 2); ctx.fill();
+    disc(ctx, s.x, s.y, 4);
+    ctx.fill();
   }
-  ctx.restore();
 }
 
 function drawCar(ctx, car, t) {
@@ -216,27 +243,29 @@ function drawCar(ctx, car, t) {
   ctx.translate(car.x, car.y);
   ctx.rotate(car.angle);
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  rr(ctx, -17, -8, 36, 20, 6);
+  roundRect(ctx, -17, -8, 36, 20, 6);
   ctx.fill();
   ctx.fillStyle = car.color;
-  rr(ctx, -18, -9, 36, 18, 6);
+  roundRect(ctx, -18, -9, 36, 18, 6);
   ctx.fill();
   ctx.fillStyle = 'rgba(20,30,50,0.85)';
-  rr(ctx, -6, -7, 12, 14, 3);
+  roundRect(ctx, -6, -7, 12, 14, 3);
   ctx.fill();
   ctx.fillStyle = 'rgba(255,255,255,0.25)';
-  rr(ctx, -14, -7, 5, 14, 2);
+  roundRect(ctx, -14, -7, 5, 14, 2);
   ctx.fill();
   if (car.kind === 'police') {
     ctx.fillStyle = '#fff';
     ctx.fillRect(-4, -9, 10, 18);
     ctx.fillStyle = '#1f3a93';
     ctx.fillRect(-4, -9, 10, 4);
-    const flash = Math.sin(t * 10) > 0 ? '#ff2d2d' : '#2d7bff';
-    ctx.fillStyle = flash;
-    ctx.beginPath(); ctx.arc(2, -5, 3.4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = Math.sin(t * 10) > 0 ? '#2d7bff' : '#ff2d2d';
-    ctx.beginPath(); ctx.arc(2, 5, 3.4, 0, Math.PI * 2); ctx.fill();
+    const flash = Math.sin(t * 10) > 0;
+    ctx.fillStyle = flash ? '#ff2d2d' : '#2d7bff';
+    disc(ctx, 2, -5, 3.4);
+    ctx.fill();
+    ctx.fillStyle = flash ? '#2d7bff' : '#ff2d2d';
+    disc(ctx, 2, 5, 3.4);
+    ctx.fill();
   }
   if (car.kind === 'taxi') {
     ctx.fillStyle = '#111';
@@ -246,8 +275,10 @@ function drawCar(ctx, car, t) {
   }
   // Headlights.
   ctx.fillStyle = 'rgba(255,240,170,0.9)';
-  ctx.beginPath(); ctx.arc(18, -6, 2.2, 0, Math.PI * 2); ctx.fill();
-  ctx.beginPath(); ctx.arc(18, 6, 2.2, 0, Math.PI * 2); ctx.fill();
+  disc(ctx, 18, -6, 2.2);
+  ctx.fill();
+  disc(ctx, 18, 6, 2.2);
+  ctx.fill();
   ctx.restore();
 }
 
@@ -261,7 +292,8 @@ function drawPed(ctx, ped) {
     ctx.fillStyle = ped.color;
     ctx.beginPath(); ctx.ellipse(0, 0, 13, 6, 0, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = '#c0392b';
-    ctx.beginPath(); ctx.arc(10, 0, 3, 0, Math.PI * 2); ctx.fill();
+    disc(ctx, 10, 0, 3);
+    ctx.fill();
     ctx.restore();
     return;
   }
@@ -269,9 +301,11 @@ function drawPed(ctx, ped) {
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
   ctx.beginPath(); ctx.ellipse(2, 3, 9, 6, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = ped.color;
-  ctx.beginPath(); ctx.arc(0, bob * 0.4, 9, 0, Math.PI * 2); ctx.fill();
+  disc(ctx, 0, bob * 0.4, 9);
+  ctx.fill();
   ctx.fillStyle = '#e8b98a';
-  ctx.beginPath(); ctx.arc(Math.cos(ped.angle) * 3, Math.sin(ped.angle) * 3 + bob * 0.4, 4.5, 0, Math.PI * 2); ctx.fill();
+  disc(ctx, Math.cos(ped.angle) * 3, Math.sin(ped.angle) * 3 + bob * 0.4, 4.5);
+  ctx.fill();
   if (ped.taxiWait) {
     ctx.fillStyle = '#ffd23f';
     ctx.font = 'bold 11px system-ui, sans-serif';
@@ -288,9 +322,11 @@ function drawCop(ctx, cop) {
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
   ctx.beginPath(); ctx.ellipse(2, 3, 9, 6, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#1f3a93';
-  ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill();
+  disc(ctx, 0, 0, 9);
+  ctx.fill();
   ctx.fillStyle = '#e8b98a';
-  ctx.beginPath(); ctx.arc(Math.cos(cop.angle) * 3, Math.sin(cop.angle) * 3, 4.5, 0, Math.PI * 2); ctx.fill();
+  disc(ctx, Math.cos(cop.angle) * 3, Math.sin(cop.angle) * 3, 4.5);
+  ctx.fill();
   ctx.fillStyle = '#ffd23f';
   ctx.fillRect(-6, -2, 12, 3);
   ctx.restore();
@@ -302,9 +338,11 @@ function drawEnemy(ctx, e) {
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
   ctx.beginPath(); ctx.ellipse(2, 3, 10, 7, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#5c2d2d';
-  ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill();
+  disc(ctx, 0, 0, 10);
+  ctx.fill();
   ctx.fillStyle = '#e8b98a';
-  ctx.beginPath(); ctx.arc(Math.cos(e.angle) * 3, Math.sin(e.angle) * 3, 5, 0, Math.PI * 2); ctx.fill();
+  disc(ctx, Math.cos(e.angle) * 3, Math.sin(e.angle) * 3, 5);
+  ctx.fill();
   ctx.strokeStyle = '#222';
   ctx.lineWidth = 3;
   ctx.beginPath();
@@ -328,9 +366,11 @@ function drawPlayer(ctx, G) {
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.beginPath(); ctx.ellipse(2, 4, 11, 8, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#0f766e';
-  ctx.beginPath(); ctx.arc(0, 0, 10, 0, Math.PI * 2); ctx.fill();
+  disc(ctx, 0, 0, 10);
+  ctx.fill();
   ctx.fillStyle = '#e8b98a';
-  ctx.beginPath(); ctx.arc(3, 0, 5, 0, Math.PI * 2); ctx.fill();
+  disc(ctx, 3, 0, 5);
+  ctx.fill();
   // Pistol in hand, pointing where the player aims.
   ctx.strokeStyle = '#1a1a1a';
   ctx.lineWidth = 3.5;

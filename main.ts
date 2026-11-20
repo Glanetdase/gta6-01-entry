@@ -18,6 +18,7 @@ import { buildDossier } from './vendor/makefun-game.ts';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
+// Stage the deliverable: the game, then the screenshots beside it.
 mkdirSync(out, { recursive: true });
 cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
 mkdirSync(join(out, 'screenshots'), { recursive: true });
@@ -29,13 +30,14 @@ if (existsSync(join(here, 'screenshots'))) {
 // dossier text; the rest refuse an entry the scorer would refuse — more than
 // 4 screenshots or one over 256 KiB; game/ over 993 files or 48 MiB in all,
 // or a path under game/ over 1000 bytes.
-writeFileSync(
-  join(out, 'dossier.json'),
-  buildDossier(out, {
-    text_max_bytes: 163840,
-    screenshots: { max: 4, max_bytes: 262144 },
-    game_max_files: 993,
-    game_max_bytes: 50331648,
-    game_path_max_bytes: 1000,
-  }),
-);
+const dossier = buildDossier(out, {
+  text_max_bytes: 163840,
+  screenshots: { max: 4, max_bytes: 262144 },
+  game_max_files: 993,
+  game_max_bytes: 50331648,
+  game_path_max_bytes: 1000,
+});
+writeFileSync(join(out, 'dossier.json'), dossier);
+
+// One line on stdout so a local run shows what it handed in.
+console.log(`Solmar Bay handed in: ${out} (dossier ${dossier.length} bytes)`);

@@ -29,8 +29,7 @@ export function spawnPed(G, near) {
   const si = Math.floor(G.rng() * (N + 1));
   const sj = Math.floor(G.rng() * (N + 1));
   const side = G.rng() < 0.5 ? 1 : -1;
-  let x;
-  let y;
+  let x, y;
   if (G.rng() < 0.5) {
     // On a horizontal sidewalk.
     x = near.x + (G.rng() < 0.5 ? -1 : 1) * range(G.rng, 200, 560);
@@ -39,23 +38,29 @@ export function spawnPed(G, near) {
     x = streetPos(si) + side * (ROAD / 2 + 10);
     y = near.y + (G.rng() < 0.5 ? -1 : 1) * range(G.rng, 200, 560);
   }
-  const p = makePed(G, x, y);
   if (inWater(x, y)) return null;
-  return p;
+  return makePed(G, x, y);
+}
+
+function senseThreat(G, ped) {
+  const p = G.player;
+  const car = G.playerCar;
+  if (G.shotsFired > 0 && Math.hypot(ped.x - p.x, ped.y - p.y) < 320) return { x: p.x, y: p.y };
+  if (car && Math.abs(car.speed) > 120 && Math.hypot(ped.x - car.x, ped.y - car.y) < 130) {
+    return { x: car.x, y: car.y };
+  }
+  return null;
 }
 
 export function updatePeds(G, dt) {
   const p = G.player;
   for (const ped of G.peds) {
-    if (ped.dead) { ped.deadTimer += dt; continue; }
-    ped.stepPhase += dt * 8;
-    // Danger check: a fast car nearby, a gunshot, or a body on the ground.
-    const car = G.playerCar;
-    let threat = null;
-    if (G.shotsFired > 0 && Math.hypot(ped.x - p.x, ped.y - p.y) < 320) threat = { x: p.x, y: p.y };
-    if (car && Math.abs(car.speed) > 120 && Math.hypot(ped.x - car.x, ped.y - car.y) < 130) {
-      threat = { x: car.x, y: car.y };
+    if (ped.dead) {
+      ped.deadTimer += dt;
+      continue;
     }
+    ped.stepPhase += dt * 8;
+    const threat = senseThreat(G, ped);
     if (threat) {
       ped.state = 'flee';
       ped.fleeX = threat.x;
@@ -109,7 +114,7 @@ export function updatePeds(G, dt) {
   G.pedTimer -= dt;
 }
 
-// A fast car ploughing through a pedestrian. Returns true if one was hit.
+// A fast car ploughing through a pedestrian. Returns the victim, or null.
 export function carHitsPed(G, car) {
   for (const ped of G.peds) {
     if (ped.dead) continue;

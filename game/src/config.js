@@ -1,17 +1,18 @@
 // Solmar Bay — tuning, palette and city geometry.
-// A fictional coastal city. Everything here is original: names, places, art.
+// A fictional coastal city. Every name, place and piece of art is original.
 
 export const WORLD_W = 3150;
 export const WORLD_H = 3400;
-export const BEACH_Y = 3150; // sand starts here; water from WATER_Y
+export const BEACH_Y = 3150; // sand begins here; the water from WATER_Y down
 export const WATER_Y = 3270;
 export const BLOCK = 210;
 export const ROAD = 70;
-export const N = 11; // blocks per side; streets run 0..N
+export const N = 11; // blocks per side; streets are numbered 0..N
 
-// Centre of the i-th street (i = 0..N). Streets form the road grid.
+// Centre line of street i (i = 0..N). Streets form the road grid.
 export const streetPos = (i) => ROAD / 2 + i * (BLOCK + ROAD);
-// Top-left of block (i, j).
+
+// Top-left corner of block (i, j), with its size.
 export const blockRect = (i, j) => ({
   x: ROAD + i * (BLOCK + ROAD),
   y: ROAD + j * (BLOCK + ROAD),

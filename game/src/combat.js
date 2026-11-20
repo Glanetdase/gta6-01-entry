@@ -1,6 +1,6 @@
 // Combat: bullets, the player's punch, and armed enemies for the story
-// missions. Bullets are stopped by buildings; a hit on a pedestrian or a cop
-// is a crime the wanted system remembers.
+// missions. Bullets are stopped by buildings; a hit on a pedestrian or a
+// cop is a crime the wanted system remembers.
 
 import { TUNE } from './config.js';
 import { hitBuilding } from './world.js';
@@ -20,6 +20,48 @@ export function fireBullet(G, x, y, angle, from, dmg = TUNE.bulletDamage) {
   }
 }
 
+function spark(G, x, y) {
+  G.sparks.push({ x, y, t: 0.12 });
+}
+
+// Player bullets vs enemies, cops and pedestrians.
+function hitTargets(G, b) {
+  for (const e of G.enemies) {
+    if (e.hp > 0 && Math.hypot(e.x - b.x, e.y - b.y) < 16) {
+      e.hp -= b.dmg;
+      b.life = 0;
+      spark(G, b.x, b.y);
+      if (e.hp <= 0 && !e.counted) {
+        e.counted = true;
+        G.enemiesKilled++;
+        G.audio.blip(300, 0.15, 'sawtooth', 0.1);
+      }
+      return true;
+    }
+  }
+  for (const c of G.cops) {
+    if (Math.hypot(c.x - b.x, c.y - b.y) < 15) {
+      c.hp -= b.dmg;
+      b.life = 0;
+      if (c.hp <= 0) {
+        addWanted(G, TUNE.killCop, 'officer down');
+        G.cops.splice(G.cops.indexOf(c), 1);
+      }
+      return true;
+    }
+  }
+  for (const ped of G.peds) {
+    if (!ped.dead && Math.hypot(ped.x - b.x, ped.y - b.y) < 14) {
+      ped.dead = true;
+      ped.deadTimer = 0;
+      b.life = 0;
+      addWanted(G, TUNE.hitPed, 'pedestrian shot');
+      return true;
+    }
+  }
+  return false;
+}
+
 export function updateBullets(G, dt) {
   const p = G.player;
   for (const b of G.bullets) {
@@ -32,42 +74,7 @@ export function updateBullets(G, dt) {
       continue;
     }
     if (b.from === 'player') {
-      // Enemies, cops and pedestrians.
-      for (const e of G.enemies) {
-        if (e.hp > 0 && Math.hypot(e.x - b.x, e.y - b.y) < 16) {
-          e.hp -= b.dmg;
-          b.life = 0;
-          G.sparks.push({ x: b.x, y: b.y, t: 0.12 });
-          if (e.hp <= 0 && !e.counted) {
-            e.counted = true;
-            G.enemiesKilled++;
-            G.audio.blip(300, 0.15, 'sawtooth', 0.1);
-          }
-          break;
-        }
-      }
-      if (b.life <= 0) continue;
-      for (const c of G.cops) {
-        if (Math.hypot(c.x - b.x, c.y - b.y) < 15) {
-          c.hp -= b.dmg;
-          b.life = 0;
-          if (c.hp <= 0) {
-            addWanted(G, TUNE.killCop, 'officer down');
-            G.cops.splice(G.cops.indexOf(c), 1);
-          }
-          break;
-        }
-      }
-      if (b.life <= 0) continue;
-      for (const ped of G.peds) {
-        if (!ped.dead && Math.hypot(ped.x - b.x, ped.y - b.y) < 14) {
-          ped.dead = true;
-          ped.deadTimer = 0;
-          b.life = 0;
-          addWanted(G, TUNE.hitPed, 'pedestrian shot');
-          break;
-        }
-      }
+      hitTargets(G, b);
     } else {
       // Enemy bullets: only the player.
       if (!G.playerCar && Math.hypot(p.x - b.x, p.y - b.y) < 15) {
@@ -76,7 +83,7 @@ export function updateBullets(G, dt) {
         G.shake = Math.max(G.shake, 3);
       } else if (G.playerCar && Math.hypot(G.playerCar.x - b.x, G.playerCar.y - b.y) < 20) {
         b.life = 0;
-        G.sparks.push({ x: b.x, y: b.y, t: 0.12 });
+        spark(G, b.x, b.y);
       }
     }
   }
@@ -87,23 +94,20 @@ export function updateBullets(G, dt) {
 // The player's punch: a short arc in front of the player.
 export function playerPunch(G) {
   const p = G.player;
-  const range = TUNE.punchRange;
-  const arc = TUNE.punchArc;
-  const hit = (t, r) => {
+  const inArc = (t, r) => {
     const dx = t.x - p.x;
     const dy = t.y - p.y;
     const d = Math.hypot(dx, dy);
-    if (d > range + r) return false;
-    const a = Math.atan2(dy, dx);
-    let diff = a - p.angle;
+    if (d > TUNE.punchRange + r) return false;
+    let diff = Math.atan2(dy, dx) - p.angle;
     while (diff > Math.PI) diff -= Math.PI * 2;
     while (diff < -Math.PI) diff += Math.PI * 2;
-    return Math.abs(diff) < arc;
+    return Math.abs(diff) < TUNE.punchArc;
   };
   G.audio.punch();
   let landed = false;
   for (const e of G.enemies) {
-    if (e.hp > 0 && hit(e, 14)) {
+    if (e.hp > 0 && inArc(e, 14)) {
       e.hp -= TUNE.punchDamage;
       landed = true;
       if (e.hp <= 0 && !e.counted) {
@@ -113,7 +117,7 @@ export function playerPunch(G) {
     }
   }
   for (const c of G.cops) {
-    if (hit(c, 14)) {
+    if (inArc(c, 14)) {
       c.hp -= TUNE.punchDamage;
       landed = true;
       addWanted(G, 40, 'assaulted an officer');
@@ -121,7 +125,7 @@ export function playerPunch(G) {
     }
   }
   for (const ped of G.peds) {
-    if (!ped.dead && hit(ped, 12)) {
+    if (!ped.dead && inArc(ped, 12)) {
       ped.state = 'flee';
       ped.fleeX = p.x;
       ped.fleeY = p.y;
@@ -134,7 +138,14 @@ export function playerPunch(G) {
 
 // Armed enemies: they hold position, strafe, and shoot at the player.
 export function makeEnemy(x, y) {
-  return { x, y, hp: TUNE.enemyHealth, angle: 0, shootTimer: 1 + Math.random() * 0.8, strafe: Math.random() < 0.5 ? 1 : -1, strafeTimer: 0 };
+  return {
+    x, y,
+    hp: TUNE.enemyHealth,
+    angle: 0,
+    shootTimer: 1 + Math.random() * 0.8,
+    strafe: Math.random() < 0.5 ? 1 : -1,
+    strafeTimer: 0,
+  };
 }
 
 export function updateEnemies(G, dt) {
@@ -147,7 +158,10 @@ export function updateEnemies(G, dt) {
     if (d < 430 && d > 120) {
       // Strafe sideways while keeping distance.
       e.strafeTimer -= dt;
-      if (e.strafeTimer <= 0) { e.strafe = -e.strafe; e.strafeTimer = 0.9 + G.rng() * 0.8; }
+      if (e.strafeTimer <= 0) {
+        e.strafe = -e.strafe;
+        e.strafeTimer = 0.9 + G.rng() * 0.8;
+      }
       const sa = e.angle + Math.PI / 2;
       e.x += Math.cos(sa) * e.strafe * 70 * dt;
       e.y += Math.sin(sa) * e.strafe * 70 * dt;
