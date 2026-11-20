@@ -1,159 +1,110 @@
-// Deterministic staged scenes for Solmar Bay's screenshots. Each scene
-// builds a fixed moment of play — a chase, a beach drive, a dockside
-// shootout, a walk through the park — from a seeded stream, then settles it
-// with a few fixed simulation steps. The screenshots are real frames of
-// the game.
+// Solmar Bay — screenshot scenes: four staged moments the maker
+// shoots for the entry (?shot=chase|drive|shootout|walk). Each one
+// sets up the world, a mission and the actors, then raises the
+// shot-ready flag the capture script waits for.
 
-import { streetPos, blockRect } from './config.js';
-import { landmarkPos } from './world.js';
-import { makeCar } from './vehicles.js';
-import { makePed } from './pedestrians.js';
+import { startMission, showDialogue } from './missions.js';
 import { makeEnemy } from './combat.js';
-import { startMission } from './missions.js';
+import { makeCar } from './vehicles.js';
+import { PALETTE } from './config.js';
 
-function settle(G, steps = 50) {
-  for (let i = 0; i < steps; i++) G.stepWorld(1 / 60);
+// Stage one of the four scenes. `shot` is the ?shot= value.
+export function setupShot(G, shot) {
+  const L = G.world.landmarks;
+  if (shot === 'chase') stageChase(G, L);
+  else if (shot === 'drive') stageDrive(G, L);
+  else if (shot === 'shootout') stageShootout(G, L);
+  else if (shot === 'walk') stageWalk(G, L);
+  // A staged scene is a live play moment: the title overlay must not
+  // cover it, and the HUD (minimap, stars, objective) must show.
+  G.state = 'play';
+  G.shotReady = true;
 }
 
-function stageTraffic(G, spots) {
-  for (const s of spots) {
-    const car = makeCar(s.x, s.y, s.angle, s.color, 'traffic');
-    car.speed = s.speed ?? 150;
-    car.ai = { axis: s.axis, dir: s.dir, turnCooldown: 2, wantTurn: false };
-    G.cars.push(car);
-  }
-}
-
-function stagePeds(G, spots) {
-  for (const s of spots) {
-    const ped = makePed(G, s.x, s.y);
-    ped.axis = s.axis || 'h';
-    ped.dir = s.dir || 1;
-    ped.speed = s.speed ?? 55;
-    G.peds.push(ped);
-  }
-}
-
-function stageChase(G) {
-  // A three-star chase on the central boulevard, mission five on the HUD.
-  const y = streetPos(5);
-  const car = makeCar(1500, y + 14, 0, '#d7263d', 'player');
-  car.speed = 420;
-  G.cars.push(car);
-  G.playerCar = car;
-  G.player.x = car.x;
-  G.player.y = car.y;
-  G.player.money = 2450;
-  G.player.health = 82;
-  G.wanted = 520;
-  G.stars = 3;
-  for (let k = 0; k < 2; k++) {
-    const pc = makeCar(1500 - 180 - k * 90, y + 14 + (k % 2 ? 30 : -30), 0, '#1f3a93', 'police');
-    pc.speed = 430;
-    pc.ai = { mode: 'ram' };
-    G.cars.push(pc);
-    G.policeCars.push(pc);
-  }
-  stageTraffic(G, [
-    { x: 1850, y: y - 14, angle: Math.PI, color: '#f1c40f', axis: 'h', dir: -1, speed: 150 },
-    { x: 1150, y: y + 14, angle: 0, color: '#2980b9', axis: 'h', dir: 1, speed: 140 },
-    { x: 1650, y: streetPos(3) - 14, angle: -Math.PI / 2, color: '#e67e22', axis: 'v', dir: -1, speed: 160 },
-  ]);
-  stagePeds(G, [
-    { x: 1380, y: y - 48, axis: 'h', dir: 1 },
-    { x: 1720, y: y + 48, axis: 'h', dir: -1 },
-  ]);
+// A three-star chase on mission 5: Danny in a sports car, two police
+// cars closing in, the bank job behind him.
+export function stageChase(G, L) {
   startMission(G, 4);
-  G.mission.step = 2; // escape step, marker on the safehouse
-  settle(G, 40);
-}
-
-function stageDrive(G) {
-  // Cruising the beach road at sunset in a taxi, fares waiting.
-  const y = streetPos(10);
-  const car = makeCar(1250, y - 14, 0, '#f7c948', 'player');
+  G.mission.step = 1;
+  G.mission.target = { x: L.safehouse.x, y: L.safehouse.y };
+  G.wanted = 60;
+  G.stars = 3;
+  const car = makeCar(L.bank.x + 30, L.bank.y + 40, 'sports', PALETTE.sports);
+  car.state = 'player';
   car.speed = 300;
-  car.kind = 'taxi';
+  car.angle = -Math.PI / 2;
   G.cars.push(car);
   G.playerCar = car;
   G.player.x = car.x;
   G.player.y = car.y;
-  G.player.money = 640;
-  G.wanted = 0;
-  G.stars = 0;
-  stageTraffic(G, [
-    { x: 1600, y: y + 14, angle: 0, color: '#c0392b', axis: 'h', dir: 1, speed: 170 },
-    { x: 900, y: y - 14, angle: Math.PI, color: '#ecf0f1', axis: 'h', dir: -1, speed: 150 },
-    { x: 1450, y: streetPos(8) + 14, angle: Math.PI / 2, color: '#1abc9c', axis: 'v', dir: 1, speed: 140 },
-  ]);
-  stagePeds(G, [
-    { x: 1100, y: 3225, axis: 'h', dir: 1 },
-    { x: 1500, y: 3225, axis: 'h', dir: -1 },
-    { x: 1750, y: y - 48, axis: 'h', dir: 1 },
-  ]);
+  for (const [dx, dy] of [[-260, 180], [300, -160]]) {
+    const cop = makeCar(G.player.x + dx, G.player.y + dy, 'police', PALETTE.police);
+    cop.state = 'police';
+    cop.speed = 320;
+    G.cars.push(cop);
+  }
+  G.player.money = 1250;
+  // A fresh crime timestamp keeps the 3-star heat on through the shot
+  // (the wanted level only decays after a 6 s grace with no new crime).
+  G.lastCrime = G.time;
+  // The chase car keeps driving itself so the shot shows motion.
+  G.autoDrive = true;
+  showDialogue(G, { speaker: 'MARCO', text: 'Vault is open! Now run — every cop in the city is coming.' });
+}
+
+// A fare on the beach road: Danny driving the taxi at sunset.
+export function stageDrive(G, L) {
   startMission(G, 0);
   G.mission.step = 2;
-  settle(G, 40);
+  G.mission.target = { x: L.beach.x, y: L.beach.y };
+  G.mission.timer = 18;
+  G.fare = { state: 'toDest', timer: 18, pickup: { x: L.beach.x - 1400, y: L.beach.y - 20 }, dest: { x: L.beach.x, y: L.beach.y } };
+  const car = makeCar(L.beach.x - 1400, L.beach.y - 20, 'taxi', PALETTE.taxi);
+  car.state = 'player';
+  car.speed = 240;
+  car.angle = 0;
+  G.cars.push(car);
+  G.playerCar = car;
+  G.player.x = car.x;
+  G.player.y = car.y;
+  G.player.money = 340;
+  G.clockMinutes = 18 * 60 + 5;
+  // The staged taxi keeps driving itself so the shot shows motion.
+  G.autoDrive = true;
+  showDialogue(G, { speaker: 'FARE', text: 'Beach road, please. And step on it!' });
 }
 
-function stageShootout(G) {
-  // The dockside shootout: Danny on foot, Vultures ahead, two stars.
-  const docks = landmarkPos(G.world, 'docks');
-  G.player.x = docks.x - 260;
-  G.player.y = docks.y + 40;
-  G.player.angle = 0;
-  G.player.aimAngle = 0;
-  G.player.money = 1180;
-  G.player.health = 74;
-  G.wanted = 300;
-  G.stars = 2;
-  for (let k = 0; k < 4; k++) {
-    G.enemies.push(makeEnemy(docks.x - 120 + k * 70, docks.y - 60 + (k % 2) * 90));
-  }
-  const pc = makeCar(docks.x - 420, streetPos(9) + 14, 0, '#1f3a93', 'police');
-  pc.speed = 300;
-  pc.ai = { mode: 'ram' };
-  G.cars.push(pc);
-  G.policeCars.push(pc);
-  stagePeds(G, [{ x: docks.x + 120, y: docks.y + 120, axis: 'h', dir: -1 }]);
-  startMission(G, 3);
+// The dockside shootout: four Vultures, two stars, Danny on foot.
+export function stageShootout(G, L) {
+  startMission(G, 2);
   G.mission.step = 1;
-  // A shot already in the air, for the muzzle-flash moment.
-  G.bullets.push({ x: G.player.x + 60, y: G.player.y, vx: 780, vy: 0, life: 0.4, from: 'player', dmg: 34 });
-  settle(G, 25);
-}
-
-function stageWalk(G) {
-  // A walk through the park plaza, city behind.
-  const pk = blockRect(6, 7);
-  G.player.x = pk.x + 100;
-  G.player.y = pk.y + 100;
+  G.mission.target = { x: L.docks.x, y: L.docks.y };
+  G.wanted = 40;
+  G.stars = 2;
+  // A fresh crime timestamp keeps the 2-star heat on through the shot
+  // (the wanted level only decays after a 6 s grace with no new crime).
+  G.lastCrime = 0;
+  G.player.x = L.docks.x - 180;
+  G.player.y = L.docks.y + 120;
   G.player.angle = Math.PI / 4;
-  G.player.money = 320;
-  G.wanted = 0;
-  G.stars = 0;
-  stagePeds(G, [
-    { x: pk.x + 40, y: pk.y + 60, axis: 'h', dir: 1 },
-    { x: pk.x + 150, y: pk.y + 140, axis: 'v', dir: -1 },
-    { x: pk.x + 60, y: pk.y + 170, axis: 'h', dir: -1 },
-    { x: pk.x + 170, y: pk.y + 40, axis: 'v', dir: 1 },
-  ]);
-  const taxi = makeCar(pk.x + 60, streetPos(7) + 14, 0, '#f7c948', 'taxi');
-  taxi.speed = 0;
-  taxi.ai = { axis: 'h', dir: 1, turnCooldown: 2, wantTurn: false };
-  G.cars.push(taxi);
-  startMission(G, 1);
-  settle(G, 40);
+  G.player.health = 82;
+  G.player.money = 860;
+  const spots = [
+    { x: L.docks.x - 90, y: L.docks.y - 60 },
+    { x: L.docks.x + 80, y: L.docks.y - 40 },
+    { x: L.docks.x - 40, y: L.docks.y + 90 },
+    { x: L.docks.x + 110, y: L.docks.y + 70 },
+  ];
+  for (const s of spots) G.enemies.push(makeEnemy(s.x, s.y));
+  showDialogue(G, { speaker: 'DANNY', text: 'There they are. Four Vultures, one me.' });
 }
 
-export function setupShot(G, name) {
-  G.state = 'play';
-  G.audio.muted = true;
-  if (name === 'cover' || name === '1-cover') stageChase(G);
-  else if (name === 'drive' || name === '2-drive') stageDrive(G);
-  else if (name === 'mission' || name === '3-mission') stageShootout(G);
-  else stageWalk(G);
-  G.camera.x = G.player.x;
-  G.camera.y = G.player.y;
-  G.shotReady = true;
+// On foot in the park plaza: the city at rest, no heat.
+export function stageWalk(G, L) {
+  G.player.x = L.park.x;
+  G.player.y = L.park.y + 40;
+  G.player.angle = -Math.PI / 2;
+  G.player.money = 120;
+  G.clockMinutes = 10 * 60 + 20;
+  showDialogue(G, { speaker: 'DANNY', text: 'Solmar Bay. Five jobs and I am done.' });
 }

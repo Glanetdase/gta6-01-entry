@@ -1,329 +1,334 @@
-// Story missions, taxi fares and hidden packages for Solmar Bay.
-// Five missions chain into one story: a driver who comes home, takes a
-// fare, runs a package, earns heat, settles a dockside score and pulls one
-// big job.
+// Solmar Bay — the story: five chained missions with dialogue, a taxi
+// fare side job, and cash collectibles scattered over the city.
+// Each mission is a small state machine driven by the player's
+// position, the timer and the enemies left standing.
 
-import { MISSION_REWARDS, blockRect, streetPos } from './config.js';
-import { landmarkPos } from './world.js';
+import { TUNE, REWARDS } from './config.js';
+import { mulberry32, range, int, dist, clamp } from './random.js';
 import { makeEnemy } from './combat.js';
-import { starsFor } from './police.js';
 
-const D = (speaker, text) => ({ speaker, text });
+export const MISSION_DEFS = [
+  {
+    id: 'first-fare',
+    name: 'First Fare',
+    reward: REWARDS[0],
+    intro: [
+      { speaker: 'DANNY', text: "Solmar Bay. Five jobs and I'm done. Let's get to work." },
+      { speaker: 'MARCO', text: 'First one is easy: grab a car, pick up my fare at the taxi stand.' },
+    ],
+  },
+  {
+    id: 'package-run',
+    name: 'Package Run',
+    reward: REWARDS[1],
+    intro: [
+      { speaker: 'LENA', text: 'Three packages, three drops. No questions, no cops. You in?' },
+      { speaker: 'DANNY', text: 'Three drops. Say less.' },
+    ],
+  },
+  {
+    id: 'dockside-shootout',
+    name: 'Dockside Shootout',
+    reward: REWARDS[2],
+    intro: [
+      { speaker: 'MARCO', text: 'The Vultures took our shipment at the docks. Go get it back.' },
+      { speaker: 'DANNY', text: 'Four of them. I can count.' },
+    ],
+  },
+  {
+    id: 'hot-pursuit',
+    name: 'Hot Pursuit',
+    reward: REWARDS[3],
+    intro: [
+      { speaker: 'LENA', text: 'Cops are all over you. Lose them and get to the safehouse.' },
+      { speaker: 'DANNY', text: 'I know every shortcut in this city.' },
+    ],
+  },
+  {
+    id: 'the-big-score',
+    name: 'The Big Score',
+    reward: REWARDS[4],
+    intro: [
+      { speaker: 'MARCO', text: 'Last job: the bank vault, then straight to the safehouse. No stopping.' },
+      { speaker: 'DANNY', text: 'After this, Solmar Bay is mine.' },
+    ],
+  },
+];
 
-// The five jobs. Positions come from the landmarks so the story follows
-// the city wherever its seed puts it.
-function missionDefs(G) {
-  const bank = landmarkPos(G.world, 'bank');
-  const docks = landmarkPos(G.world, 'docks');
-  const safe = landmarkPos(G.world, 'safehouse');
-  const hosp = landmarkPos(G.world, 'hospital');
-  const beach = { x: 900, y: 3220 };
-  return [
-    {
-      id: 1, name: 'First Fare',
-      intro: [
-        D('DANNY', "Back in Solmar. One last fare, then I'm done driving for other people."),
-        D('DISPATCH', 'Client waiting at St. Marina. Pick them up, drop them at the beach hotel.'),
-      ],
-      steps: [
-        { type: 'car', label: 'Get in a car' },
-        { type: 'goto', x: hosp.x, y: hosp.y + 130, r: 55, label: 'Pick up the client at St. Marina Hospital' },
-        { type: 'goto', x: beach.x, y: beach.y - 60, r: 60, label: 'Drop the client at the beach hotel' },
-      ],
-    },
-    {
-      id: 2, name: 'Package Run',
-      intro: [
-        D('MARA', 'Three parcels, no questions. Docks, the alley by the PD, and the park. Then bring them to Port Solmar.'),
-        D('DANNY', 'Three stops. Easy money.'),
-      ],
-      steps: [
-        {
-          type: 'packages', label: 'Collect the three parcels',
-          points: [
-            { x: streetPos(8) + 40, y: streetPos(9) - 40 },
-            { x: blockRect(2, 2).x + 30, y: blockRect(2, 2).y + 150 },
-            { x: blockRect(6, 7).x + 100, y: blockRect(6, 7).y + 100 },
-          ],
-        },
-        { type: 'goto', x: docks.x, y: docks.y - 120, r: 60, label: 'Deliver the parcels to Port Solmar' },
-      ],
-    },
-    {
-      id: 3, name: 'Heat',
-      intro: [
-        D('MARA', 'The crew needs a clean car and the cops need a distraction. Take one off the street, get the heat on you, then shake it.'),
-        D('DANNY', 'Steal a car, make some noise, disappear. Got it.'),
-      ],
-      steps: [
-        { type: 'steal', label: 'Steal a car off the street (E near a car)' },
-        { type: 'wanted', stars: 2, label: 'Get the heat up to 2 stars' },
-        { type: 'lose-heat', label: 'Lose the cops — wanted back to 0' },
-      ],
-    },
-    {
-      id: 4, name: 'Dockside Trouble',
-      intro: [
-        D('MARA', 'The Vultures are leaning on our dock crew. Go down there and make it clear Port Solmar is ours.'),
-        D('DANNY', 'Four of them. Say less.'),
-      ],
-      steps: [
-        { type: 'goto', x: docks.x, y: docks.y - 40, r: 90, label: 'Get to the docks' },
-        { type: 'kill', count: 4, label: 'Deal with the Vultures (4 left)' },
-      ],
-    },
-    {
-      id: 5, name: 'The Big One',
-      intro: [
-        D('MARA', 'Solmar National. One vault, one window, one way out. Grab the cash and bring it home.'),
-        D('DANNY', "After tonight, we're out. All of us."),
-      ],
-      steps: [
-        { type: 'goto', x: bank.x, y: bank.y + 110, r: 60, label: 'Reach Solmar National Bank' },
-        { type: 'grab', x: bank.x, y: bank.y, seconds: 3, label: 'Grab the cash — stay in the vault' },
-        { type: 'escape', x: safe.x, y: safe.y + 120, r: 60, minStars: 3, label: 'Escape to the safehouse with the cash' },
-      ],
-    },
-  ];
-}
+// Where the three package drops wait, on road intersections.
+export const PACKAGE_SPOTS = [
+  { x: 0, y: 0 }, // filled in by startMission from landmarks
+  { x: 0, y: 0 },
+  { x: 0, y: 0 },
+];
 
-export function startMission(G, index) {
-  const defs = missionDefs(G);
-  const def = defs[index];
-  if (!def) return;
-  G.mission = { def, index, step: 0, stepState: {}, startedAt: G.time };
-  showDialogue(G, def.intro[0]);
-  G.dialogueQueue = def.intro.slice(1);
-  if (def.id === 4) {
-    // The Vultures are waiting at the docks.
-    const docks = landmarkPos(G.world, 'docks');
-    for (let k = 0; k < 4; k++) {
-      G.enemies.push(makeEnemy(docks.x - 120 + k * 80, docks.y - 60 + (k % 2) * 90));
-    }
-  }
-  if (def.id === 5) {
-    const bank = landmarkPos(G.world, 'bank');
-    G.enemies.push(makeEnemy(bank.x - 80, bank.y + 40));
-    G.enemies.push(makeEnemy(bank.x + 80, bank.y + 40));
-  }
-}
-
+// Show a line of dialogue; queued lines follow when the first ends.
 export function showDialogue(G, line) {
-  G.dialogue = { speaker: line.speaker, text: line.text, t: 0, dur: 4.2 };
+  G.dialogueQueue.push(line);
+  if (!G.dialogue) nextDialogue(G);
 }
 
-function currentStep(G) {
-  return G.mission ? G.mission.def.steps[G.mission.step] : null;
+export function nextDialogue(G) {
+  const line = G.dialogueQueue.shift();
+  G.dialogue = line ? { speaker: line.speaker, text: line.text, t: 0, dur: 4.2 } : null;
+  if (G.dialogue) G.audio.blip();
 }
 
-function pkgKey(pt) {
-  return 'pkg_' + pt.x + '_' + pt.y;
-}
-
-export function missionMarker(G) {
-  const s = currentStep(G);
-  if (!s) return null;
-  if (s.type === 'goto' || s.type === 'grab' || s.type === 'escape') {
-    return { x: s.x, y: s.y, label: s.label };
+// Start mission `index` (0..4): reset its step, place its markers.
+export function startMission(G, index) {
+  const def = MISSION_DEFS[index];
+  if (!def) return;
+  const L = G.world.landmarks;
+  const mission = {
+    index,
+    def,
+    step: 0,
+    timer: 0,
+    target: null,
+    delivered: 0,
+    enemiesToKill: 0,
+  };
+  if (index === 0) {
+    mission.target = { x: L.taxi.x, y: L.taxi.y };
+  } else if (index === 1) {
+    PACKAGE_SPOTS[0] = { x: L.police.x, y: L.police.y };
+    PACKAGE_SPOTS[1] = { x: L.hospital.x, y: L.hospital.y };
+    PACKAGE_SPOTS[2] = { x: L.beach.x, y: L.beach.y };
+    mission.target = PACKAGE_SPOTS[0];
+  } else if (index === 2) {
+    mission.target = { x: L.docks.x, y: L.docks.y };
+  } else if (index === 3) {
+    mission.target = { x: L.safehouse.x, y: L.safehouse.y };
+    G.wanted = 60;
+    G.stars = 3;
+    G.lastCrime = 0;
+  } else if (index === 4) {
+    mission.target = { x: L.bank.x, y: L.bank.y };
   }
-  if (s.type === 'packages') {
-    const next = s.points.find((pt) => !G.mission.stepState[pkgKey(pt)]);
-    return next ? { x: next.x, y: next.y, label: s.label } : null;
-  }
-  if (s.type === 'kill') {
-    const docks = landmarkPos(G.world, 'docks');
-    return { x: docks.x, y: docks.y, label: s.label };
-  }
-  return null;
+  G.mission = mission;
+  for (const line of def.intro) showDialogue(G, line);
 }
 
-export function missionObjective(G) {
-  const s = currentStep(G);
-  if (!s) {
-    return G.missionsDone.every(Boolean)
-      ? 'Story complete — Solmar Bay is yours.'
-      : 'Drive to the yellow M to start the next job.';
-  }
-  if (s.type === 'kill') {
-    const left = s.count - (G.mission.stepState.kills || 0);
-    return `Deal with the Vultures (${left} left)`;
-  }
-  if (s.type === 'wanted') return `Get the heat up to ${s.stars} stars (now ${starsFor(G.wanted)})`;
-  return s.label;
+// One step done: advance, or finish the mission with its reward.
+export function stepDone(G, nextTarget) {
+  const m = G.mission;
+  if (!m) return;
+  m.step += 1;
+  if (nextTarget) m.target = nextTarget;
+  G.audio.chime();
 }
 
-function advanceStep(G) {
-  G.mission.step++;
-  G.mission.stepState = {};
-  G.audio.blip(990, 0.12);
-  if (G.mission.step >= G.mission.def.steps.length) completeMission(G);
-}
-
-function completeMission(G) {
-  const idx = G.mission.index;
-  const reward = MISSION_REWARDS[idx];
-  G.player.money += reward;
-  G.missionsDone[idx] = true;
-  G.audio.missionDone();
-  showDialogue(G, D('SOLMAR BAY', `${G.mission.def.name} complete — $${reward} earned.`));
-  G.flash = { text: `MISSION PASSED — ${G.mission.def.name}  +$${reward}`, t: 3.2 };
+export function finishMission(G) {
+  const m = G.mission;
+  if (!m) return;
+  G.player.money += m.def.reward;
+  G.missionsDone[m.index] = true;
+  showDialogue(G, { speaker: 'MARCO', text: `Job done. $${m.def.reward} is yours.` });
   G.mission = null;
-  G.wanted = 0;
-  G.cops = [];
-  G.policeCars = [];
-  G.saveGame();
-  if (idx + 1 < 5) {
-    G.nextMissionAt = G.time + 3.5;
-  } else {
+  G.nextMissionAt = G.time + 2.5;
+  if (m.index === 4) {
     G.storyComplete = true;
   }
 }
 
-// One step's completion test. Returns true when the step is done.
-function stepDone(G, s, dt) {
-  const p = G.player;
-  const pos = G.playerCar || p;
-  switch (s.type) {
-    case 'car':
-      return !!G.playerCar;
-    case 'goto':
-      return Math.hypot(pos.x - s.x, pos.y - s.y) < s.r;
-    case 'packages': {
-      const st = G.mission.stepState;
-      for (const pt of s.points) {
-        if (!st[pkgKey(pt)] && Math.hypot(pos.x - pt.x, pos.y - pt.y) < 46) {
-          st[pkgKey(pt)] = true;
-          G.audio.pickup();
-          G.player.money += 20;
-        }
-      }
-      return s.points.every((pt) => st[pkgKey(pt)]);
-    }
-    case 'steal':
-      if (G.stoleCar) {
-        G.stoleCar = false;
-        return true;
-      }
-      return false;
-    case 'wanted':
-      return starsFor(G.wanted) >= s.stars;
-    case 'lose-heat':
-      return starsFor(G.wanted) === 0;
-    case 'kill': {
-      const st = G.mission.stepState;
-      if (st.baseKills === undefined) st.baseKills = G.enemiesKilled;
-      st.kills = G.enemiesKilled - st.baseKills;
-      return st.kills >= s.count;
-    }
-    case 'grab': {
-      const d = Math.hypot(p.x - s.x, p.y - s.y);
-      const st = G.mission.stepState;
-      if (d < 70 && !G.playerCar) {
-        st.t = (st.t || 0) + dt;
-        if (st.t >= s.seconds) {
-          // Grabbing the vault trips every alarm in the city.
-          G.wanted = 720;
-          G.lastCrime = 0;
-          return true;
-        }
-      } else {
-        st.t = 0;
-      }
-      return false;
-    }
-    case 'escape':
-      return Math.hypot(pos.x - s.x, pos.y - s.y) < s.r;
-    default:
-      return false;
-  }
-}
-
+// The per-frame mission logic: each mission advances on its own terms.
 export function updateMission(G, dt) {
-  if (G.nextMissionAt && G.time >= G.nextMissionAt) {
-    G.nextMissionAt = 0;
-    startMission(G, G.missionsDone.findIndex((d) => !d));
-  }
-  const m = G.mission;
-  if (!m) return;
-  const s = currentStep(G);
-  if (!s) return;
-  if (stepDone(G, s, dt)) advanceStep(G);
-}
-
-// ---- Taxi fares (side activity) -----------------------------------------
-
-const FARE_DESTS = (G) => [
-  { x: 900, y: 3220, name: 'the beach hotel' },
-  { x: landmarkPos(G.world, 'hospital').x, y: landmarkPos(G.world, 'hospital').y + 130, name: 'St. Marina Hospital' },
-  { x: landmarkPos(G.world, 'bank').x, y: landmarkPos(G.world, 'bank').y + 110, name: 'Solmar National Bank' },
-  { x: landmarkPos(G.world, 'docks').x, y: landmarkPos(G.world, 'docks').y - 120, name: 'Port Solmar' },
-];
-
-export function updateFare(G, dt) {
-  if (G.fare) {
-    const f = G.fare;
-    if (!G.playerCar) {
-      // Left the car: the fare walks off.
-      G.fare = null;
-      return;
-    }
-    if (f.state === 'pickup') {
-      if (Math.hypot(G.playerCar.x - f.ped.x, G.playerCar.y - f.ped.y) < 46) {
-        f.state = 'riding';
-        G.audio.pickup();
-        showDialogue(G, D('FARE', `Take me to ${f.destName}, quick!`));
-      }
-    } else if (f.state === 'riding') {
-      if (Math.hypot(G.playerCar.x - f.dest.x, G.playerCar.y - f.dest.y) < 55) {
-        G.player.money += f.pay;
-        G.audio.cash();
-        G.flash = { text: `FARE COMPLETE  +$${f.pay}`, t: 2.4 };
-        G.fare = null;
-      }
+  if (!G.mission) {
+    if (G.nextMissionAt > 0 && G.time >= G.nextMissionAt) {
+      G.nextMissionAt = 0;
+      const next = G.missionsDone.findIndex((d) => !d);
+      if (next >= 0) startMission(G, next);
     }
     return;
   }
-  if (!G.playerCar || G.mission) return;
-  G.fareTimer -= dt;
-  if (G.fareTimer > 0) return;
-  G.fareTimer = 26 + G.rng() * 20;
-  // A waiting fare spawns on a nearby sidewalk.
-  const dests = FARE_DESTS(G);
-  const dest = dests[Math.floor(G.rng() * dests.length)];
-  const a = G.rng() * Math.PI * 2;
-  const fx = G.player.x + Math.cos(a) * 260;
-  const fy = G.player.y + Math.sin(a) * 260;
-  if (fy > 3140) return;
-  const ped = {
-    x: fx, y: fy, angle: 0, speed: 0, color: '#e8b93e',
-    state: 'walk', axis: 'h', dir: 1, fleeX: 0, fleeY: 0,
-    dead: false, deadTimer: 0, taxiWait: true, turnCooldown: 0, stepPhase: 0,
-  };
-  G.peds.push(ped);
-  G.fare = { ped, dest, destName: dest.name, pay: 40 + Math.floor(G.rng() * 5) * 10, state: 'pickup' };
+  const m = G.mission;
+  const d = m.target ? dist(G.player.x, G.player.y, m.target.x, m.target.y) : 9999;
+
+  if (m.index === 0) {
+    updateFirstFare(G, m, d, dt);
+  } else if (m.index === 1) {
+    updatePackageRun(G, m, d);
+  } else if (m.index === 2) {
+    updateShootout(G, m, d);
+  } else if (m.index === 3) {
+    updateHotPursuit(G, m, d);
+  } else if (m.index === 4) {
+    updateBigScore(G, m, d);
+  }
 }
 
-// ---- Hidden packages ------------------------------------------------------
+// Mission 1: get in a car, reach the pickup, then beat the clock to
+// the drop-off.
+export function updateFirstFare(G, m, d, dt) {
+  if (m.step === 0) {
+    if (G.playerCar) {
+      stepDone(G, G.world.landmarks.taxi);
+      showDialogue(G, { speaker: 'MARCO', text: 'Good. The fare is waiting at the stand.' });
+    }
+  } else if (m.step === 1) {
+    if (d < 70) {
+      stepDone(G, G.world.landmarks.beach);
+      m.timer = TUNE.fareTime;
+      G.fare = { state: 'toDest', timer: TUNE.fareTime };
+      showDialogue(G, { speaker: 'FARE', text: 'Beach road, please. And step on it!' });
+    }
+  } else if (m.step === 2) {
+    m.timer -= dt;
+    if (G.fare) G.fare.timer = m.timer;
+    if (d < 70) {
+      G.fare = null;
+      finishMission(G);
+    } else if (m.timer <= 0) {
+      G.fare = null;
+      showDialogue(G, { speaker: 'FARE', text: 'Forget it, I will walk. You lost the fare.' });
+      m.step = 1;
+      m.target = G.world.landmarks.taxi;
+    }
+  }
+}
 
-const PACKAGE_SPOTS = [
-  { x: 330, y: 330 }, { x: 1520, y: 260 }, { x: 2760, y: 420 },
-  { x: 420, y: 1450 }, { x: 2380, y: 1180 }, { x: 900, y: 2350 },
-  { x: 2050, y: 2620 }, { x: 2900, y: 2050 }, { x: 1500, y: 3060 },
-  { x: 620, y: 2900 },
-];
+// Mission 2: three drops, one after another.
+export function updatePackageRun(G, m, d) {
+  if (d < 70) {
+    m.delivered += 1;
+    if (m.delivered >= 3) {
+      finishMission(G);
+    } else {
+      stepDone(G, PACKAGE_SPOTS[m.delivered]);
+      showDialogue(G, { speaker: 'LENA', text: `Drop ${m.delivered + 1} of 3. Keep moving.` });
+    }
+  }
+}
 
+// Mission 3: reach the docks, then clear the four Vultures.
+export function updateShootout(G, m, d) {
+  if (m.step === 0) {
+    if (d < 120) {
+      m.step = 1;
+      m.enemiesToKill = 4;
+      const L = G.world.landmarks.docks;
+      const spots = [
+        { x: L.x - 90, y: L.y - 60 },
+        { x: L.x + 80, y: L.y - 40 },
+        { x: L.x - 40, y: L.y + 90 },
+        { x: L.x + 110, y: L.y + 70 },
+      ];
+      for (const s of spots) G.enemies.push(makeEnemy(s.x, s.y));
+      showDialogue(G, { speaker: 'DANNY', text: 'There they are. Four Vultures, one me.' });
+    }
+  } else if (m.step === 1) {
+    if (G.enemies.length === 0) finishMission(G);
+  }
+}
+
+// Mission 4: reach the safehouse while the heat is on.
+export function updateHotPursuit(G, m, d) {
+  if (d < 80) finishMission(G);
+}
+
+// Mission 5: grab the vault cash at the bank, then reach the
+// safehouse with four stars on your tail.
+export function updateBigScore(G, m, d) {
+  if (m.step === 0) {
+    if (d < 80) {
+      m.step = 1;
+      m.target = G.world.landmarks.safehouse;
+      G.player.money += 200;
+      G.wanted = 80;
+      G.stars = 4;
+      G.lastCrime = 0;
+      showDialogue(G, { speaker: 'MARCO', text: 'Vault is open! Now run — every cop in the city is coming.' });
+    }
+  } else if (m.step === 1) {
+    if (d < 80) finishMission(G);
+  }
+}
+
+// The current objective line for the HUD.
+export function missionObjective(G) {
+  const m = G.mission;
+  if (!m) return null;
+  if (m.index === 0) {
+    if (m.step === 0) return 'Get in a car';
+    if (m.step === 1) return 'Pick up the fare at the taxi stand';
+    return `Drop off the fare — ${Math.max(0, Math.ceil(m.timer))}s left`;
+  }
+  if (m.index === 1) return `Deliver package ${m.delivered + 1} of 3`;
+  if (m.index === 2) {
+    if (m.step === 0) return 'Get to the docks';
+    return `Clear the Vultures — ${G.enemies.length} left`;
+  }
+  if (m.index === 3) return 'Reach the safehouse — lose the heat';
+  if (m.index === 4) {
+    if (m.step === 0) return 'Hit the bank vault';
+    return 'Escape to the safehouse with the cash';
+  }
+  return null;
+}
+
+// Cash bundles scattered over the city, worth $50 each.
 export function seedCollectibles(G) {
-  G.collectibles = PACKAGE_SPOTS.map((s) => ({ ...s, taken: false }));
+  const rng = mulberry32(G.seed + 55);
+  G.collectibles = [];
+  const spots = [];
+  for (let i = 0; i < 12; i += 1) {
+    const col = int(rng, 0, 9);
+    const row = int(rng, 0, 9);
+    const bx = 96 + col * 416 + 60;
+    const by = 96 + row * 416 + 60;
+    spots.push({ x: bx + range(rng, 0, 200), y: by + range(rng, 0, 200) });
+  }
+  for (const s of spots) {
+    G.collectibles.push({ x: s.x, y: s.y, taken: false, value: TUNE.collectibleValue });
+  }
 }
 
 export function updateCollectibles(G) {
-  const pos = G.playerCar || G.player;
   for (const c of G.collectibles) {
-    if (!c.taken && Math.hypot(pos.x - c.x, pos.y - c.y) < 40) {
+    if (c.taken) continue;
+    if (dist(G.player.x, G.player.y, c.x, c.y) < 30) {
       c.taken = true;
-      G.player.money += 50;
-      G.audio.cash();
-      G.flash = { text: 'HIDDEN PACKAGE  +$50', t: 2 };
+      G.player.money += c.value;
+      G.audio.chime();
+    }
+  }
+}
+
+// The taxi side job: after mission 1, fares appear now and then.
+export function updateFare(G, dt) {
+  if (G.mission && G.mission.index === 0) return; // mission 1 runs its own fare
+  if (!G.missionsDone[0]) return;
+  if (!G.fare) {
+    G.fareTimer -= dt;
+    if (G.fareTimer <= 0 && G.playerCar) {
+      G.fareTimer = 45;
+      const L = G.world.landmarks;
+      const pickup = { x: L.police.x + 120, y: L.police.y - 80 };
+      const dest = { x: L.hospital.x - 100, y: L.hospital.y + 90 };
+      G.fare = { state: 'toPickup', pickup, dest, timer: 0 };
+      showDialogue(G, { speaker: 'FARE', text: 'Taxi! Over here — I need a ride.' });
+    }
+    return;
+  }
+  const f = G.fare;
+  if (f.state === 'toPickup') {
+    if (dist(G.player.x, G.player.y, f.pickup.x, f.pickup.y) < 70) {
+      f.state = 'toDest';
+      f.timer = TUNE.fareTime;
+      showDialogue(G, { speaker: 'FARE', text: 'Hospital, please. Quick!' });
+    }
+  } else if (f.state === 'toDest') {
+    f.timer -= dt;
+    if (dist(G.player.x, G.player.y, f.dest.x, f.dest.y) < 70) {
+      const pay = int(Math.random, 40, 80);
+      G.player.money += pay;
+      showDialogue(G, { speaker: 'FARE', text: `Thanks! Keep the change — $${pay}.` });
+      G.audio.chime();
+      G.fare = null;
+      G.fareTimer = 40;
+    } else if (f.timer <= 0) {
+      G.fare = null;
+      G.fareTimer = 40;
     }
   }
 }

@@ -1,14 +1,8 @@
-// Solmar Bay — the gta6-01 entry program (Node 22, standard library only).
-//
-// The game lives in game/ beside this file: plain static files a desktop
-// browser loads offline (game/index.html plus its ES modules, no library and
-// no network request). This program hands it in: it copies game/ and
-// screenshots/ into /output and writes /output/dossier.json, the summary the
-// judge reads, using the kit's vendored make.fun library.
-//
-// Run it locally with:
+// Solmar Bay — the hand-in program (Node 22, standard library only).
+// It copies game/ and screenshots/ from beside this file to /output
+// and writes /output/dossier.json with the vendored make.fun library.
+// Outside the grader, MAKEFUN_OUTPUT_DIR stands in for /output:
 //   mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts
-// Play the game locally with `node serve.ts` (http://localhost:8080).
 
 import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -18,7 +12,6 @@ import { buildDossier } from './vendor/makefun-game.ts';
 const here = fileURLToPath(new URL('.', import.meta.url));
 const out = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 
-// Stage the deliverable: the game, then the screenshots beside it.
 mkdirSync(out, { recursive: true });
 cpSync(join(here, 'game'), join(out, 'game'), { recursive: true });
 mkdirSync(join(out, 'screenshots'), { recursive: true });
@@ -26,10 +19,6 @@ if (existsSync(join(here, 'screenshots'))) {
   cpSync(join(here, 'screenshots'), join(out, 'screenshots'), { recursive: true });
 }
 
-// The scorer's own caps (reference/gate.json): text_max_bytes shapes the
-// dossier text; the rest refuse an entry the scorer would refuse — more than
-// 4 screenshots or one over 256 KiB; game/ over 993 files or 48 MiB in all,
-// or a path under game/ over 1000 bytes.
 const dossier = buildDossier(out, {
   text_max_bytes: 163840,
   screenshots: { max: 4, max_bytes: 262144 },
@@ -39,5 +28,6 @@ const dossier = buildDossier(out, {
 });
 writeFileSync(join(out, 'dossier.json'), dossier);
 
-// One line on stdout so a local run shows what it handed in.
-console.log(`Solmar Bay handed in: ${out} (dossier ${dossier.length} bytes)`);
+// Solmar Bay handed in: out (dossier <size> bytes)
+const size = Buffer.byteLength(dossier, 'utf8');
+console.log(`Solmar Bay handed in: ${out} (dossier ${size} bytes)`);

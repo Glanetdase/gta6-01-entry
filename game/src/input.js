@@ -1,65 +1,92 @@
-// Keyboard + mouse input for Solmar Bay. WASD/arrows move and drive, E gets
-// in and out of cars, F punches, the mouse aims, click shoots, Esc pauses,
-// M mutes, P saves. Keys live in a set the game polls every frame; presses
-// are edge-triggered and consumed at the end of each frame.
-
-const SCROLL_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '];
+// Solmar Bay — keyboard and mouse input.
+// Tracks which keys are held and which were pressed since the last
+// frame, plus the mouse position in canvas pixels and its buttons.
 
 export class Input {
   constructor(canvas) {
     this.canvas = canvas;
-    this.keys = new Set();
-    this.pressed = new Set(); // keys hit this frame, cleared by endFrame()
-    this.mouse = { x: 0, y: 0, down: false, clicked: false };
+    this.down = new Set();
+    this.pressed = new Set();
+    this.mouseX = 0;
+    this.mouseY = 0;
+    this.mouseDown = false;
+    this.mousePressed = false;
+    this.anyKey = false;
 
     window.addEventListener('keydown', (e) => {
-      if (SCROLL_KEYS.includes(e.key)) e.preventDefault();
-      const k = e.key.toLowerCase();
-      if (!e.repeat) this.pressed.add(k);
-      this.keys.add(k);
-    });
-    window.addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
-    window.addEventListener('blur', () => this.keys.clear());
-
-    canvas.addEventListener('mousemove', (e) => {
-      const r = canvas.getBoundingClientRect();
-      this.mouse.x = (e.clientX - r.left) * (canvas.width / r.width);
-      this.mouse.y = (e.clientY - r.top) * (canvas.height / r.height);
-    });
-    canvas.addEventListener('mousedown', (e) => {
-      if (e.button === 0) {
-        this.mouse.down = true;
-        this.mouse.clicked = true;
+      if (e.repeat) return;
+      this.down.add(e.code);
+      this.pressed.add(e.code);
+      this.anyKey = true;
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
+        e.preventDefault();
       }
     });
-    window.addEventListener('mouseup', () => { this.mouse.down = false; });
+    window.addEventListener('keyup', (e) => {
+      this.down.delete(e.code);
+    });
+    window.addEventListener('blur', () => {
+      this.down.clear();
+    });
+    canvas.addEventListener('mousemove', (e) => {
+      const r = canvas.getBoundingClientRect();
+      this.mouseX = e.clientX - r.left;
+      this.mouseY = e.clientY - r.top;
+    });
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      this.mouseDown = true;
+      this.mousePressed = true;
+      this.anyKey = true;
+    });
+    window.addEventListener('mouseup', (e) => {
+      if (e.button !== 0) return;
+      this.mouseDown = false;
+    });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
-  down(key) {
-    return this.keys.has(key.toLowerCase());
+  // True while the key is held down.
+  isDown(code) {
+    return this.down.has(code);
   }
 
-  wasPressed(key) {
-    return this.pressed.has(key.toLowerCase());
+  // True once, on the frame the key went down. Consumed by endFrame.
+  wasPressed(code) {
+    return this.pressed.has(code);
   }
 
-  // WASD or arrows as a -1..1 vector, normalised on the diagonal.
+  // Drop a press so no later system in the same frame sees it.
+  consume(code) {
+    this.pressed.delete(code);
+  }
+
+  // True once, on the frame the left mouse button went down.
+  wasClicked() {
+    return this.mousePressed;
+  }
+
+  // Movement vector from WASD / arrows, normalised, in screen space
+  // (x right, y down). Zero when nothing is held.
   moveVector() {
     let x = 0;
     let y = 0;
-    if (this.down('a') || this.down('arrowleft')) x -= 1;
-    if (this.down('d') || this.down('arrowright')) x += 1;
-    if (this.down('w') || this.down('arrowup')) y -= 1;
-    if (this.down('s') || this.down('arrowdown')) y += 1;
+    if (this.down.has('KeyA') || this.down.has('ArrowLeft')) x -= 1;
+    if (this.down.has('KeyD') || this.down.has('ArrowRight')) x += 1;
+    if (this.down.has('KeyW') || this.down.has('ArrowUp')) y -= 1;
+    if (this.down.has('KeyS') || this.down.has('ArrowDown')) y += 1;
     if (x !== 0 && y !== 0) {
-      x *= Math.SQRT1_2;
-      y *= Math.SQRT1_2;
+      const inv = 1 / Math.hypot(x, y);
+      x *= inv;
+      y *= inv;
     }
     return { x, y };
   }
 
+  // Call once per frame, after the game has read the inputs.
   endFrame() {
     this.pressed.clear();
-    this.mouse.clicked = false;
+    this.mousePressed = false;
+    this.anyKey = false;
   }
 }

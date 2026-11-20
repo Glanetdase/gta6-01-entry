@@ -1,7 +1,9 @@
-// A tiny static server for game/ (Node 22, standard library only), so the
-// entry can be played locally without a build step: `node serve.ts` serves
-// game/ on http://localhost:8080. It sends the MIME types a browser game
-// needs and refuses any path outside game/.
+// Solmar Bay — a tiny static server for game/ (Node 22, standard
+// library only), so the entry can be played locally without a build
+// step: `node serve.ts` serves game/ on http://localhost:8080.
+// It sends the MIME types a browser game needs, refuses any path
+// outside game/, and otherwise does nothing clever: this is a
+// development convenience, not a web server for the internet.
 
 import { createReadStream, statSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -23,28 +25,12 @@ const MIME = {
   '.png': 'image/png',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
-  '.wav': 'audio/wav',
-  '.mp3': 'audio/mpeg',
-  '.ogg': 'audio/ogg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.txt': 'text/plain; charset=utf-8',
 };
-
-function serveFile(file, response) {
-  let size;
-  try {
-    const stats = statSync(file);
-    if (!stats.isFile()) throw new Error('not a file');
-    size = stats.size;
-  } catch {
-    response.writeHead(404).end('not found');
-    return;
-  }
-  response.writeHead(200, {
-    'content-type': MIME[extname(file).toLowerCase()] ?? 'application/octet-stream',
-    'content-length': size,
-    'cache-control': 'no-store',
-  });
-  createReadStream(file).pipe(response);
-}
 
 createServer((request, response) => {
   const url = new URL(request.url ?? '/', 'http://localhost');
@@ -61,7 +47,18 @@ createServer((request, response) => {
     response.writeHead(403).end('forbidden');
     return;
   }
-  serveFile(file, response);
-}).listen(port, '127.0.0.1', () => {
-  console.log(`game/ is on http://localhost:${port}`);
+  let size;
+  try {
+    const stats = statSync(file);
+    if (!stats.isFile()) throw new Error('not a file');
+    size = stats.size;
+  } catch {
+    response.writeHead(404).end('not found');
+    return;
+  }
+  const type = MIME[extname(file)] || 'application/octet-stream';
+  response.writeHead(200, { 'content-type': type, 'content-length': size });
+  createReadStream(file).pipe(response);
+}).listen(port, () => {
+  console.log(`Solmar Bay serving game/ on http://localhost:${port}`);
 });

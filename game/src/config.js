@@ -1,90 +1,98 @@
-// Solmar Bay — tuning, palette and city geometry.
-// A fictional coastal city. Every name, place and piece of art is original.
+// Solmar Bay — tuning constants, palette and geometry.
+// One place for every number the rest of the game shares, so a tweak
+// here retunes the whole city instead of hunting through modules.
 
-export const WORLD_W = 3150;
-export const WORLD_H = 3400;
-export const BEACH_Y = 3150; // sand begins here; the water from WATER_Y down
-export const WATER_Y = 3270;
-export const BLOCK = 210;
-export const ROAD = 70;
-export const N = 11; // blocks per side; streets are numbered 0..N
+export const WORLD_SEED = 20261120;
+export const SAVE_KEY = 'solmarbay-save-v1';
 
-// Centre line of street i (i = 0..N). Streets form the road grid.
-export const streetPos = (i) => ROAD / 2 + i * (BLOCK + ROAD);
+export const BLOCK = 320; // side of one city block, in world pixels
+export const ROAD = 96; // width of a road, in world pixels
+export const GRID = 11; // blocks per side of the city
+export const WORLD_W = GRID * BLOCK + (GRID + 1) * ROAD; // 4672
+export const WORLD_H = WORLD_W;
 
-// Top-left corner of block (i, j), with its size.
-export const blockRect = (i, j) => ({
-  x: ROAD + i * (BLOCK + ROAD),
-  y: ROAD + j * (BLOCK + ROAD),
-  w: BLOCK,
-  h: BLOCK,
-});
-
-export const PALETTE = {
-  grass: '#5d8a4a',
-  grassDark: '#4c753d',
-  sand: '#d9b380',
-  water: '#2e6f8e',
-  waterDeep: '#245a75',
-  road: '#3b4048',
-  roadLine: '#c8b25a',
-  sidewalk: '#8d9299',
-  crosswalk: '#d8d8d8',
-  building: ['#c98a5e', '#8fa3b8', '#b56a6a', '#7d9b7a', '#a88bc0', '#d9a441', '#6a8caf', '#c47f4e'],
-  roof: ['#7a5a44', '#5d6b7a', '#8a4f4f', '#5f705c', '#6f5a86', '#a87c2e', '#4f6480', '#96603a'],
-  parkTree: ['#3e6b2f', '#4c7a35', '#5d8a3a'],
-  windowLit: '#ffd98a',
-  windowDark: '#2c3440',
-};
+export const STATIONS = ['SOLMAR FM', 'BAY 98.5', 'VICE WAVE'];
 
 export const TUNE = {
-  // On foot
-  walkSpeed: 210,
-  runSpeed: 330,
-  playerRadius: 13,
-  playerHealth: 100,
-  punchDamage: 30,
-  punchRange: 34,
-  punchArc: 1.1,
-  shootCooldown: 0.22,
-  bulletSpeed: 780,
-  bulletDamage: 34,
-  enemyHealth: 100,
-  // Cars
-  carAccel: 560,
-  carReverseAccel: 340,
-  carMaxSpeed: 540,
-  carMaxReverse: 210,
-  carBrake: 700,
-  carDrag: 0.55,
-  carSteer: 2.5,
-  carRadius: 16,
-  trafficSpeed: 150,
-  trafficMax: 3,
-  // Wanted
-  starThresholds: [100, 250, 450, 700, 950],
-  wantedMax: 1000,
-  stealOccupied: 120,
-  stealParked: 45,
-  hitPed: 150,
-  shootCrime: 60,
-  killCop: 200,
-  wantedDecay: 26,
-  // Police
-  copFootSpeed: 235,
-  policeCarSpeed: 470,
-  // Money
-  startMoney: 50,
-  bustFine: 100,
+  walkSpeed: 195,
+  walkAccel: 1400,
+  carAccel: 300,
+  carBrake: 520,
+  carReverseMax: 170,
+  carMaxSpeed: 430,
+  sportsMaxSpeed: 500,
+  carTurn: 2.5,
+  trafficSpeed: 135,
+  trafficMax: 175,
+  pedSpeed: 62,
+  pedFleeSpeed: 150,
+  copSpeed: 165,
+  bulletSpeed: 760,
+  bulletLife: 0.9,
+  enemyRange: 430,
+  enemyShootGap: 1.15,
+  playerDamage: 8,
+  enemyHealth: 3,
+  bustFine: 120,
+  wantedDecay: 2.6,
+  wantedGrace: 6,
+  fareTime: 24,
+  radioEvery: 75,
+  cameraLerp: 5,
+  shakeDecay: 22,
   collectibleValue: 50,
+  maxStars: 5,
 };
 
-export const CAR_COLORS = [
-  '#c0392b', '#2980b9', '#f1c40f', '#ecf0f1', '#2c3e50', '#e67e22',
-  '#9b59b6', '#1abc9c', '#7f8c8d', '#d35400', '#16a085', '#bdc3c7',
-];
-export const TAXI_COLOR = '#f7c948';
-export const POLICE_COLOR = '#1f3a93';
-export const SPORTS_COLOR = '#d7263d';
+export const PALETTE = {
+  asphalt: '#33373d',
+  asphaltLine: '#c8b15a',
+  sidewalk: '#8d8f92',
+  lot: '#6f6a5e',
+  grass: '#5d8a4a',
+  sand: '#d9c184',
+  sea: '#2f6f8f',
+  dockConcrete: '#7a7d80',
+  roofA: '#b0583a',
+  roofB: '#4a6b8a',
+  roofC: '#7a5a8a',
+  roofD: '#a8874f',
+  roofE: '#5a7a5a',
+  tree: '#3f7038',
+  treeDark: '#2f5a2c',
+  containerA: '#c25a3a',
+  containerB: '#3a7ac2',
+  containerC: '#c2a23a',
+  containerD: '#4a9a5a',
+  player: '#e8b23a',
+  playerDark: '#8a6a1a',
+  cop: '#2f6fd0',
+  copDark: '#1a3f7a',
+  enemy: '#c23a3a',
+  enemyDark: '#7a1a1a',
+  pedA: '#d08a4a',
+  pedB: '#4a8a8a',
+  pedC: '#8a4a8a',
+  pedD: '#7a7a4a',
+  carColors: ['#c23a3a', '#3a6ac2', '#c2a23a', '#4a9a5a', '#8a4a8a', '#d0d0d0', '#3a3a3a', '#d08a4a'],
+  taxi: '#e8c23a',
+  police: '#e8e8e8',
+  sports: '#c23a6a',
+  marker: '#ffd23a',
+  cash: '#4ac25a',
+  hudBg: 'rgba(12, 14, 18, 0.72)',
+  hudText: '#f2f2ea',
+  hudDim: '#b8b8a8',
+  gold: '#ffd23a',
+};
 
-export const MISSION_REWARDS = [150, 250, 300, 500, 1000];
+// How many of each thing the city seeds.
+export const COUNTS = {
+  traffic: 26,
+  parked: 30,
+  peds: 42,
+  collectibles: 12,
+};
+
+// Mission rewards, in dollars, in story order.
+export const REWARDS = [150, 250, 400, 350, 600];

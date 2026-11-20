@@ -1,129 +1,106 @@
-// Pedestrians: they stroll the sidewalks, wait for taxis, flee from danger,
-// and remember when the player hurts them (that is what wanted stars are for).
+// Solmar Bay — pedestrians: people walking the sidewalks, who run
+// away from gunfire and screeching cars. They give the city life and
+// the wanted system something to react to.
 
-import { ROAD, N, TUNE, streetPos } from './config.js';
-import { nearestIntersection, resolveCircle, inWater } from './world.js';
-import { pick, range } from './random.js';
+import { GRID, TUNE, PALETTE } from './config.js';
+import { mulberry32, range, int, pick, clamp, dist } from './random.js';
+import { randomSidewalkPoint, resolveCircle } from './world.js';
 
-const SHIRT = ['#d94f3d', '#3d7dd9', '#e8b93e', '#7ec850', '#c05fd9', '#e8e8e8', '#4a4a4a', '#e07a3f'];
+const PED_COLORS = [PALETTE.pedA, PALETTE.pedB, PALETTE.pedC, PALETTE.pedD];
 
-export function makePed(G, x, y) {
-  const horiz = G.rng() < 0.5;
+export function makePed(x, y, rng) {
   return {
-    x, y,
-    angle: G.rng() * Math.PI * 2,
-    speed: range(G.rng, 42, 68),
-    color: pick(G.rng, SHIRT),
-    state: 'walk',
-    axis: horiz ? 'h' : 'v',
-    dir: G.rng() < 0.5 ? 1 : -1,
-    fleeX: 0, fleeY: 0,
-    dead: false, deadTimer: 0,
-    taxiWait: false,
-    turnCooldown: range(G.rng, 0.5, 2),
-    stepPhase: G.rng() * Math.PI * 2,
+    x,
+    y,
+    angle: rng() * Math.PI * 2,
+    speed: range(rng, TUNE.pedSpeed * 0.7, TUNE.pedSpeed * 1.3),
+    color: pick(rng, PED_COLORS),
+    state: 'walk', // walk | flee
+    target: null,
+    fleeTimer: 0,
+    bob: rng() * Math.PI * 2,
   };
 }
 
-export function spawnPed(G, near) {
-  const si = Math.floor(G.rng() * (N + 1));
-  const sj = Math.floor(G.rng() * (N + 1));
-  const side = G.rng() < 0.5 ? 1 : -1;
-  let x, y;
-  if (G.rng() < 0.5) {
-    // On a horizontal sidewalk.
-    x = near.x + (G.rng() < 0.5 ? -1 : 1) * range(G.rng, 200, 560);
-    y = streetPos(sj) + side * (ROAD / 2 + 10);
-  } else {
-    x = streetPos(si) + side * (ROAD / 2 + 10);
-    y = near.y + (G.rng() < 0.5 ? -1 : 1) * range(G.rng, 200, 560);
+// Seed the starting crowd.
+export function seedPeds(G) {
+  const rng = mulberry32(G.seed + 31);
+  G.peds = [];
+  for (let i = 0; i < 42; i += 1) {
+    const p = randomSidewalkPoint(rng, G.world);
+    G.peds.push(makePed(p.x, p.y, rng));
   }
-  if (inWater(x, y)) return null;
-  return makePed(G, x, y);
 }
 
-function senseThreat(G, ped) {
-  const p = G.player;
-  const car = G.playerCar;
-  if (G.shotsFired > 0 && Math.hypot(ped.x - p.x, ped.y - p.y) < 320) return { x: p.x, y: p.y };
-  if (car && Math.abs(car.speed) > 120 && Math.hypot(ped.x - car.x, ped.y - car.y) < 130) {
-    return { x: car.x, y: car.y };
+// Keep the crowd near the player: spawn ahead, remove far behind.
+export function maintainPeds(G, dt) {
+  G.pedTimer -= dt;
+  if (G.peds.length < 34 && G.pedTimer <= 0) {
+    G.pedTimer = 0.9;
+    const p = randomSidewalkPoint(G.rng, G.world);
+    if (dist(p.x, p.y, G.player.x, G.player.y) < 420) return;
+    if (dist(p.x, p.y, G.player.x, G.player.y) > 1100) return;
+    G.peds.push(makePed(p.x, p.y, G.rng));
   }
-  return null;
+  for (let i = G.peds.length - 1; i >= 0; i -= 1) {
+    const ped = G.peds[i];
+    if (dist(ped.x, ped.y, G.player.x, G.player.y) > 1400) {
+      G.peds.splice(i, 1);
+    }
+  }
+}
+
+// A nearby threat (a gunshot, a fast car) makes peds run away.
+export function senseThreat(G, x, y, radius) {
+  for (const ped of G.peds) {
+    if (dist(ped.x, ped.y, x, y) < radius) {
+      ped.state = 'flee';
+      ped.fleeTimer = 2.5;
+      ped.angle = Math.atan2(ped.y - y, ped.x - x);
+    }
+  }
 }
 
 export function updatePeds(G, dt) {
-  const p = G.player;
   for (const ped of G.peds) {
-    if (ped.dead) {
-      ped.deadTimer += dt;
-      continue;
-    }
-    ped.stepPhase += dt * 8;
-    const threat = senseThreat(G, ped);
-    if (threat) {
-      ped.state = 'flee';
-      ped.fleeX = threat.x;
-      ped.fleeY = threat.y;
-    } else if (ped.state === 'flee' && Math.hypot(ped.x - ped.fleeX, ped.y - ped.fleeY) > 420) {
-      ped.state = 'walk';
-    }
+    ped.bob += dt * 7;
     if (ped.state === 'flee') {
-      const dx = ped.x - ped.fleeX;
-      const dy = ped.y - ped.fleeY;
-      const d = Math.hypot(dx, dy) || 1;
-      ped.angle = Math.atan2(dy, dx);
-      ped.x += (dx / d) * 250 * dt;
-      ped.y += (dy / d) * 250 * dt;
-      resolveCircle(G.world, ped, 10);
-      continue;
+      ped.fleeTimer -= dt;
+      const speed = TUNE.pedFleeSpeed;
+      ped.x += Math.cos(ped.angle) * speed * dt;
+      ped.y += Math.sin(ped.angle) * speed * dt;
+      if (ped.fleeTimer <= 0) ped.state = 'walk';
+    } else {
+      // Wander: pick a new sidewalk target when the old one is reached.
+      if (!ped.target || dist(ped.x, ped.y, ped.target.x, ped.target.y) < 24) {
+        ped.target = randomSidewalkPoint(G.rng, G.world);
+      }
+      const want = Math.atan2(ped.target.y - ped.y, ped.target.x - ped.x);
+      let diff = want - ped.angle;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      ped.angle += clamp(diff, -2.4 * dt, 2.4 * dt);
+      ped.x += Math.cos(ped.angle) * ped.speed * dt;
+      ped.y += Math.sin(ped.angle) * ped.speed * dt;
     }
-    if (ped.taxiWait) continue; // standing at the curb, waiting for a fare
-    // Stroll along the sidewalk; turn at intersections sometimes.
-    ped.turnCooldown -= dt;
-    const inter = nearestIntersection(ped.x, ped.y);
-    if (ped.turnCooldown <= 0 && Math.hypot(ped.x - inter.x, ped.y - inter.y) < 34) {
-      ped.turnCooldown = range(G.rng, 1, 3);
-      if (G.rng() < 0.4) {
-        ped.axis = ped.axis === 'h' ? 'v' : 'h';
-        ped.dir = G.rng() < 0.5 ? 1 : -1;
+    const fixed = resolveCircle(G.world, ped.x, ped.y, 11);
+    ped.x = fixed.x;
+    ped.y = fixed.y;
+  }
+
+  // The player's car running a ped over is a crime, and the ped is gone.
+  if (G.playerCar && Math.abs(G.playerCar.speed) > 60) {
+    for (let i = G.peds.length - 1; i >= 0; i -= 1) {
+      const ped = G.peds[i];
+      if (dist(ped.x, ped.y, G.playerCar.x, G.playerCar.y) < 26) {
+        G.peds.splice(i, 1);
+        G.lastCrime = 0;
+        G.lastCrimeReason = 'hit a pedestrian';
+        G.wanted = Math.min(100, G.wanted + 25);
+        G.shake = Math.max(G.shake, 6);
+        G.audio.thud();
+        senseThreat(G, ped.x, ped.y, 320);
       }
     }
-    if (ped.axis === 'h') {
-      ped.x += ped.dir * ped.speed * dt;
-      ped.angle = ped.dir > 0 ? 0 : Math.PI;
-    } else {
-      ped.y += ped.dir * ped.speed * dt;
-      ped.angle = ped.dir > 0 ? Math.PI / 2 : -Math.PI / 2;
-    }
-    // Stay on the sidewalk band; drift back if pushed off.
-    resolveCircle(G.world, ped, 10);
-    if (inWater(ped.x, ped.y)) ped.y -= 40;
   }
-  // Remove the long-dead and the far away; keep the street alive.
-  G.peds = G.peds.filter((ped) => {
-    if (ped.dead && ped.deadTimer > 14) return false;
-    return Math.hypot(ped.x - p.x, ped.y - p.y) < 900;
-  });
-  const alive = G.peds.filter((ped) => !ped.dead).length;
-  if (alive < 12 && G.pedTimer <= 0) {
-    const np = spawnPed(G, p);
-    if (np) G.peds.push(np);
-    G.pedTimer = 0.4;
-  }
-  G.pedTimer -= dt;
-}
-
-// A fast car ploughing through a pedestrian. Returns the victim, or null.
-export function carHitsPed(G, car) {
-  for (const ped of G.peds) {
-    if (ped.dead) continue;
-    if (Math.hypot(ped.x - car.x, ped.y - car.y) < 26 && Math.abs(car.speed) > 90) {
-      ped.dead = true;
-      ped.deadTimer = 0;
-      ped.angle = Math.atan2(ped.y - car.y, ped.x - car.x);
-      return ped;
-    }
-  }
-  return null;
 }
