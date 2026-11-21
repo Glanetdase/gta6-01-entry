@@ -1,6 +1,6 @@
-// Solmar Bay — a small seeded PRNG and the helpers built on it.
-// Every random choice in the world comes from one of these, so the
-// city, the traffic and the screenshots are the same every run.
+// Solmar Bay — deterministic seeded random (mulberry32) and small helpers.
+// The world, traffic and pickups all come from one seed, so the city is the same
+// every load and every screenshot run is reproducible.
 
 export function mulberry32(seed) {
   let a = seed >>> 0;
@@ -13,60 +13,43 @@ export function mulberry32(seed) {
   };
 }
 
-// A random number in [min, max).
-export function range(rng, min, max) {
-  return min + rng() * (max - min);
+export function makeRng(seed) {
+  const next = mulberry32(seed);
+  return {
+    next,
+    range(min, max) { return min + next() * (max - min); },
+    int(min, max) { return Math.floor(min + next() * (max - min + 1)); },
+    pick(list) { return list[Math.floor(next() * list.length)]; },
+    chance(p) { return next() < p; },
+    shuffle(list) {
+      const out = list.slice();
+      for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(next() * (i + 1));
+        const t = out[i]; out[i] = out[j]; out[j] = t;
+      }
+      return out;
+    },
+  };
 }
 
-// A random integer in [min, max] inclusive.
-export function int(rng, min, max) {
-  return Math.floor(range(rng, min, max + 1));
+export function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+export function lerp(a, b, t) { return a + (b - a) * t; }
+export function dist2(ax, ay, bx, by) {
+  const dx = ax - bx; const dy = ay - by; return dx * dx + dy * dy;
 }
-
-// One element of an array, picked uniformly.
-export function pick(rng, list) {
-  return list[Math.floor(rng() * list.length)];
+export function dist(ax, ay, bx, by) { return Math.sqrt(dist2(ax, ay, bx, by)); }
+export function angleTo(ax, ay, bx, by) { return Math.atan2(by - ay, bx - ax); }
+export function angleDiff(a, b) {
+  let d = (b - a) % (Math.PI * 2);
+  if (d > Math.PI) d -= Math.PI * 2;
+  if (d < -Math.PI) d += Math.PI * 2;
+  return d;
 }
-
-// A Fisher-Yates shuffle that returns a new array.
-export function shuffle(rng, list) {
-  const out = list.slice();
-  for (let i = out.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(rng() * (i + 1));
-    const tmp = out[i];
-    out[i] = out[j];
-    out[j] = tmp;
-  }
-  return out;
+export function fmtClock(minutes) {
+  const h = Math.floor(minutes / 60) % 24;
+  const m = Math.floor(minutes % 60);
+  const hh = h % 12 === 0 ? 12 : h % 12;
+  const ap = h < 12 ? 'AM' : 'PM';
+  return hh + ':' + String(m).padStart(2, '0') + ' ' + ap;
 }
-
-// Clamp a value into [min, max].
-export function clamp(v, min, max) {
-  if (v < min) return min;
-  if (v > max) return max;
-  return v;
-}
-
-// Linear interpolation.
-export function lerp(a, b, t) {
-  return a + (b - a) * t;
-}
-
-// Wrap an angle into [-PI, PI].
-export function wrapAngle(a) {
-  while (a > Math.PI) a -= Math.PI * 2;
-  while (a < -Math.PI) a += Math.PI * 2;
-  return a;
-}
-
-// Turn `current` toward `target` by at most `step` radians.
-export function turnToward(current, target, step) {
-  const d = wrapAngle(target - current);
-  if (Math.abs(d) <= step) return target;
-  return current + Math.sign(d) * step;
-}
-
-// Euclidean distance between two points.
-export function dist(ax, ay, bx, by) {
-  return Math.hypot(ax - bx, ay - by);
-}
+export function fmtMoney(n) { return '$' + Math.round(n).toLocaleString('en-US'); }

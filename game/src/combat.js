@@ -1,122 +1,100 @@
-// Solmar Bay — combat: bullets, muzzle sparks, and the gang members
-// who shoot back. The player shoots on foot with the mouse; enemies
-// take three hits, and their bullets hurt.
+// Solmar Bay — combat: bullets, muzzle sparks, gang enemies.
+// Player bullets fly from the gun toward the mouse; gang enemies stand their
+// ground and shoot back when the player is in range. Every hit is a circle test.
 
-import { TUNE } from './config.js';
-import { range, dist, clamp } from './random.js';
-import { isBlocked } from './world.js';
-import { senseThreat } from './pedestrians.js';
+import { BULLET_SPEED, BULLET_LIFE, ENEMY_RANGE, ENEMY_SHOT_COOLDOWN, PALETTE } from './config.js';
+import { dist, clamp } from './random.js';
 
-export function spawnBullet(G, x, y, angle, from) {
-  G.bullets.push({
-    x,
-    y,
-    vx: Math.cos(angle) * TUNE.bulletSpeed,
-    vy: Math.sin(angle) * TUNE.bulletSpeed,
-    life: TUNE.bulletLife,
-    from,
-  });
-  G.audio.shot();
-}
-
-export function spawnSpark(G, x, y, color) {
-  G.sparks.push({ x, y, t: 0, life: 0.28, color: color || '#ffd23a' });
-}
-
-// The player fires toward the mouse. Only on foot, one shot per click.
-export function playerShoot(G, angle) {
-  const px = G.player.x + Math.cos(angle) * 22;
-  const py = G.player.y + Math.sin(angle) * 22;
-  spawnBullet(G, px, py, angle, 'player');
-  spawnSpark(G, px, py, '#ffe98a');
-  G.shotsFired += 1;
-  G.lastCrime = 0;
-  G.lastCrimeReason = 'fired a weapon';
-  G.wanted = Math.min(100, G.wanted + 8);
-  senseThreat(G, G.player.x, G.player.y, 380);
-}
-
-export function makeEnemy(x, y) {
+export function makeBullet(x, y, angle, owner) {
   return {
-    x,
-    y,
-    angle: 0,
-    health: TUNE.enemyHealth,
-    shootTimer: range(Math.random, 0.4, 1.2),
-    r: 13,
+    x, y,
+    vx: Math.cos(angle) * BULLET_SPEED,
+    vy: Math.sin(angle) * BULLET_SPEED,
+    life: BULLET_LIFE,
+    owner, // 'player' | 'enemy'
   };
 }
 
-// Move bullets, test hits against enemies, the player and the world.
-export function updateBullets(G, dt) {
-  for (let i = G.bullets.length - 1; i >= 0; i -= 1) {
-    const b = G.bullets[i];
-    b.life -= dt;
+export function makeGang(x, y, rng) {
+  return {
+    x, y,
+    angle: rng ? rng.range(0, Math.PI * 2) : 0,
+    health: 50,
+    shotCooldown: rng ? rng.range(0.3, 1.2) : 0.5,
+    speed: 55,
+    color: PALETTE.gang,
+    kind: 'gang',
+    wander: 0,
+  };
+}
+
+// Step all bullets; returns hits: { bullet, target } for the caller to resolve.
+export function stepBullets(bullets, dt, world) {
+  const alive = [];
+  for (const b of bullets) {
     b.x += b.vx * dt;
     b.y += b.vy * dt;
-    let dead = b.life <= 0;
-    if (!dead && isBlocked(G.world, b.x, b.y)) {
-      spawnSpark(G, b.x, b.y, '#c8c8c8');
-      dead = true;
-    }
-    if (!dead && b.from === 'player') {
-      for (let j = G.enemies.length - 1; j >= 0; j -= 1) {
-        const e = G.enemies[j];
-        if (dist(b.x, b.y, e.x, e.y) < e.r + 6) {
-          e.health -= 1;
-          spawnSpark(G, b.x, b.y, '#ff5a5a');
-          if (e.health <= 0) {
-            G.enemies.splice(j, 1);
-            G.enemiesKilled += 1;
-            G.audio.chime();
-          }
-          dead = true;
-          break;
-        }
-      }
-    }
-    if (!dead && b.from === 'enemy') {
-      const target = G.playerCar || G.player;
-      const rr = G.playerCar ? 20 : 13;
-      if (dist(b.x, b.y, target.x, target.y) < rr + 5) {
-        if (G.playerCar) {
-          G.playerCar.speed *= 0.9;
-        } else {
-          G.player.health -= TUNE.playerDamage;
-          G.shake = Math.max(G.shake, 4);
-        }
-        spawnSpark(G, b.x, b.y, '#ff8a5a');
-        dead = true;
-      }
-    }
-    if (dead) G.bullets.splice(i, 1);
+    b.life -= dt;
+    if (b.life <= 0) continue;
+    if (b.x < 0 || b.y < 0 || b.x > 3600 || b.y > 3600) continue;
+    alive.push(b);
   }
-  for (let i = G.sparks.length - 1; i >= 0; i -= 1) {
-    G.sparks[i].t += dt;
-    if (G.sparks[i].t >= G.sparks[i].life) G.sparks.splice(i, 1);
-  }
+  bullets.length = 0;
+  bullets.push(...alive);
 }
 
-// Enemies stand their ground and shoot at the player in range.
-export function updateEnemies(G, dt) {
-  for (const e of G.enemies) {
-    const d = dist(e.x, e.y, G.player.x, G.player.y);
-    e.angle = Math.atan2(G.player.y - e.y, G.player.x - e.x);
-    if (d < TUNE.enemyRange) {
-      e.shootTimer -= dt;
-      if (e.shootTimer <= 0) {
-        e.shootTimer = TUNE.enemyShootGap * range(Math.random, 0.8, 1.3);
-        const spread = range(Math.random, -0.09, 0.09);
-        const bx = e.x + Math.cos(e.angle) * 22;
-        const by = e.y + Math.sin(e.angle) * 22;
-        spawnBullet(G, bx, by, e.angle + spread, 'enemy');
-        spawnSpark(G, bx, by, '#ff9a5a');
-      }
+// Player bullet vs a target circle; returns the bullet if it hit (and removes it).
+export function bulletHits(bullets, x, y, radius, owner) {
+  for (let i = 0; i < bullets.length; i++) {
+    const b = bullets[i];
+    if (b.owner !== owner) continue;
+    if (dist(b.x, b.y, x, y) < radius + 4) {
+      bullets.splice(i, 1);
+      return b;
     }
   }
+  return null;
 }
 
-// Every live target the current mission still needs dead.
-export function enemiesLeft(G) {
-  return G.enemies.length;
+// Gang AI: hold position, shoot the player in range; shuffle sideways sometimes.
+export function stepGang(enemy, playerPos, bullets, dt, rng) {
+  const d = dist(enemy.x, enemy.y, playerPos.x, playerPos.y);
+  enemy.angle = Math.atan2(playerPos.y - enemy.y, playerPos.x - enemy.x);
+  enemy.shotCooldown -= dt;
+  if (d < ENEMY_RANGE && d > 60 && enemy.shotCooldown <= 0) {
+    const spread = rng.range(-0.09, 0.09);
+    bullets.push(makeBullet(enemy.x, enemy.y, enemy.angle + spread, 'enemy'));
+    enemy.shotCooldown = ENEMY_SHOT_COOLDOWN * rng.range(0.8, 1.3);
+  }
+  // Side-step now and then so they are not statues.
+  enemy.wander -= dt;
+  if (enemy.wander <= 0) {
+    enemy.wander = rng.range(1.2, 2.6);
+    enemy.strafe = rng.chance(0.5) ? 1 : -1;
+  }
+  const sx = Math.cos(enemy.angle + Math.PI / 2) * (enemy.strafe || 1) * enemy.speed * 0.25;
+  const sy = Math.sin(enemy.angle + Math.PI / 2) * (enemy.strafe || 1) * enemy.speed * 0.25;
+  enemy.x = clamp(enemy.x + sx * dt, 20, 3580);
+  enemy.y = clamp(enemy.y + sy * dt, 20, 3580);
+}
+
+// A small spark burst for hit feedback.
+export function makeSparks(x, y, color, n) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const s = 60 + Math.random() * 160;
+    out.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0.25 + Math.random() * 0.2, color });
+  }
+  return out;
+}
+
+export function stepSparks(sparks, dt) {
+  for (let i = sparks.length - 1; i >= 0; i--) {
+    const s = sparks[i];
+    s.x += s.vx * dt;
+    s.y += s.vy * dt;
+    s.life -= dt;
+    if (s.life <= 0) sparks.splice(i, 1);
+  }
 }

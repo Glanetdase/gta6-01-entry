@@ -1,98 +1,109 @@
-// Solmar Bay — tuning constants, palette and geometry.
-// One place for every number the rest of the game shares, so a tweak
-// here retunes the whole city instead of hunting through modules.
+// Solmar Bay — tuning constants, palette and city geometry.
+// One place for every number the rest of the game shares, so a tweak lands everywhere.
 
 export const WORLD_SEED = 20261120;
-export const SAVE_KEY = 'solmarbay-save-v1';
+export const VIEW_W = 1280;
+export const VIEW_H = 720;
 
-export const BLOCK = 320; // side of one city block, in world pixels
-export const ROAD = 96; // width of a road, in world pixels
-export const GRID = 11; // blocks per side of the city
-export const WORLD_W = GRID * BLOCK + (GRID + 1) * ROAD; // 4672
-export const WORLD_H = WORLD_W;
+// City grid: 11 blocks of 240 px, 12 roads of 80 px. 11*240 + 12*80 = 3600.
+export const BLOCK = 240;
+export const ROAD = 80;
+export const PITCH = BLOCK + ROAD;
+export const GRID = 11;
+export const WORLD = GRID * BLOCK + (GRID + 1) * ROAD; // 3600
 
-export const STATIONS = ['SOLMAR FM', 'BAY 98.5', 'VICE WAVE'];
+// Road i (0..11) spans [i*PITCH, i*PITCH + ROAD); its centre line:
+export function roadCenter(i) { return i * PITCH + ROAD / 2; }
+// Block i (0..10) spans [i*PITCH + ROAD, (i+1)*PITCH).
+export function blockStart(i) { return i * PITCH + ROAD; }
+export function blockCenter(i) { return i * PITCH + ROAD + BLOCK / 2; }
 
-export const TUNE = {
-  walkSpeed: 195,
-  walkAccel: 1400,
-  carAccel: 300,
-  carBrake: 520,
-  carReverseMax: 170,
-  carMaxSpeed: 430,
-  sportsMaxSpeed: 500,
-  carTurn: 2.5,
-  trafficSpeed: 135,
-  trafficMax: 175,
-  pedSpeed: 62,
-  pedFleeSpeed: 150,
-  copSpeed: 165,
-  bulletSpeed: 760,
-  bulletLife: 0.9,
-  enemyRange: 430,
-  enemyShootGap: 1.15,
-  playerDamage: 8,
-  enemyHealth: 3,
-  bustFine: 120,
-  wantedDecay: 2.6,
-  wantedGrace: 6,
-  fareTime: 24,
-  radioEvery: 75,
-  cameraLerp: 5,
-  shakeDecay: 22,
-  collectibleValue: 50,
-  maxStars: 5,
+export const PLAYER_WALK = 175;
+export const PLAYER_RUN = 265;
+export const CAR_ACCEL = 460;
+export const CAR_BRAKE = 900;
+export const CAR_MAX_SPEED = 640;
+export const CAR_REVERSE_MAX = 220;
+export const CAR_TURN = 2.5;
+export const CAR_DRAG = 0.55;
+export const CAR_RADIUS = 17;
+
+export const BULLET_SPEED = 900;
+export const BULLET_LIFE = 0.9;
+export const PLAYER_SHOT_COOLDOWN = 0.22;
+export const ENEMY_SHOT_COOLDOWN = 0.85;
+export const ENEMY_RANGE = 430;
+
+export const WANTED_DECAY_DELAY = 14; // seconds of no crime before stars fall
+export const WANTED_DECAY_RATE = 1 / 9; // stars per second once decaying
+export const MAX_WANTED = 5;
+
+export const SAVE_KEY = 'solmar-bay-save-v1';
+
+export const RADIO_STATIONS = [
+  { name: 'SOLMAR FM', hue: '#ff5da2' },
+  { name: 'BAY 98.5', hue: '#35d0ff' },
+  { name: 'VICE WAVE', hue: '#ffb347' },
+];
+export const RADIO_SWITCH_SECONDS = 75;
+
+export const MISSION_REWARDS = [80, 120, 200, 250, 500];
+export const PICKUP_VALUE = 25;
+export const BUST_FINE = 50;
+export const WASTED_FINE = 100;
+
+// Landmark blocks (block coordinates, 0..10).
+export const LANDMARKS = {
+  hospital: { bx: 2, by: 2, name: 'St. Marina Hospital' },
+  police: { bx: 8, by: 2, name: 'Solmar PD' },
+  safehouse: { bx: 1, by: 8, name: "Danny's Safehouse" },
+  bank: { bx: 5, by: 4, name: 'Bay Trust Bank' },
+  park: { bx: 5, by: 5, name: 'Palma Plaza' },
+  docks: { bx: 10, by: 6, name: 'The Docks' },
+  beach: { bx: 5, by: 10, name: 'Solmar Beach' },
 };
 
 export const PALETTE = {
-  asphalt: '#33373d',
-  asphaltLine: '#c8b15a',
-  sidewalk: '#8d8f92',
-  lot: '#6f6a5e',
-  grass: '#5d8a4a',
-  sand: '#d9c184',
-  sea: '#2f6f8f',
-  dockConcrete: '#7a7d80',
-  roofA: '#b0583a',
-  roofB: '#4a6b8a',
-  roofC: '#7a5a8a',
-  roofD: '#a8874f',
-  roofE: '#5a7a5a',
-  tree: '#3f7038',
-  treeDark: '#2f5a2c',
-  containerA: '#c25a3a',
-  containerB: '#3a7ac2',
-  containerC: '#c2a23a',
-  containerD: '#4a9a5a',
-  player: '#e8b23a',
-  playerDark: '#8a6a1a',
-  cop: '#2f6fd0',
-  copDark: '#1a3f7a',
-  enemy: '#c23a3a',
-  enemyDark: '#7a1a1a',
-  pedA: '#d08a4a',
-  pedB: '#4a8a8a',
-  pedC: '#8a4a8a',
-  pedD: '#7a7a4a',
-  carColors: ['#c23a3a', '#3a6ac2', '#c2a23a', '#4a9a5a', '#8a4a8a', '#d0d0d0', '#3a3a3a', '#d08a4a'],
-  taxi: '#e8c23a',
-  police: '#e8e8e8',
-  sports: '#c23a6a',
-  marker: '#ffd23a',
-  cash: '#4ac25a',
-  hudBg: 'rgba(12, 14, 18, 0.72)',
+  grass: '#4d8f4a',
+  grassDark: '#417d3e',
+  sand: '#e0c98f',
+  sandDark: '#d3ba7d',
+  road: '#33363f',
+  roadLine: '#d8d8c8',
+  sidewalk: '#9aa0a8',
+  plaza: '#b8a88a',
+  water: '#2e6f9e',
+  waterDark: '#265c85',
+  building: ['#c96f4a', '#7d8aa6', '#b5a06a', '#8a6f9e', '#5f9e8a', '#a65a5a'],
+  roof: ['#8a4a33', '#5a6a86', '#8a7a4a', '#6a4a7d', '#477a6a', '#7d3a3a'],
+  tree: '#2f6b2a',
+  treeDark: '#245420',
+  car: ['#d94f3d', '#3d7dd9', '#e8c832', '#e8e8e8', '#3aa655', '#8a5fd9', '#e07b2e', '#2e2e33'],
+  taxi: '#f2c230',
+  copCar: '#e8e8e8',
+  copBlue: '#2b4fd9',
+  player: '#ffd23d',
+  playerDark: '#c79a12',
+  ped: ['#e07b2e', '#7db3e8', '#e88bb0', '#9e7de8', '#7de89e', '#e8e8e8'],
+  gang: '#c22e4a',
+  cop: '#2b4fd9',
+  bullet: '#ffe9a8',
+  spark: '#ffd23d',
+  blood: '#a01828',
+  hudBg: 'rgba(8,10,22,0.72)',
   hudText: '#f2f2ea',
-  hudDim: '#b8b8a8',
-  gold: '#ffd23a',
+  hudGold: '#ffd23d',
+  hudRed: '#ff5a5a',
+  star: '#ffd23d',
+  starEmpty: '#5a5a66',
+  night: 'rgba(10,14,48,0.30)',
+  sunset: 'rgba(255,120,60,0.12)',
 };
 
-// How many of each thing the city seeds.
-export const COUNTS = {
-  traffic: 26,
-  parked: 30,
-  peds: 42,
-  collectibles: 12,
-};
-
-// Mission rewards, in dollars, in story order.
-export const REWARDS = [150, 250, 400, 350, 600];
+export const CAR_KINDS = [
+  { name: 'Sedan', w: 44, h: 22, accel: 1.0, top: 1.0 },
+  { name: 'Hatch', w: 38, h: 20, accel: 1.1, top: 0.92 },
+  { name: 'Truck', w: 56, h: 24, accel: 0.8, top: 0.85 },
+  { name: 'Taxi', w: 44, h: 22, accel: 1.05, top: 0.95 },
+  { name: 'Coupe', w: 42, h: 20, accel: 1.2, top: 1.12 },
+];

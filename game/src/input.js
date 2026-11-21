@@ -1,92 +1,60 @@
-// Solmar Bay — keyboard and mouse input.
-// Tracks which keys are held and which were pressed since the last
-// frame, plus the mouse position in canvas pixels and its buttons.
+// Solmar Bay — keyboard + mouse input with edge-triggered "pressed" keys.
+// A key counts as pressed only on the frame it goes down, so E never double-fires
+// and a pause toggle cannot bounce.
 
 export class Input {
   constructor(canvas) {
-    this.canvas = canvas;
-    this.down = new Set();
-    this.pressed = new Set();
+    this.keys = new Set();
+    this.pressedKeys = new Set();
     this.mouseX = 0;
     this.mouseY = 0;
     this.mouseDown = false;
-    this.mousePressed = false;
-    this.anyKey = false;
-
-    window.addEventListener('keydown', (e) => {
-      if (e.repeat) return;
-      this.down.add(e.code);
-      this.pressed.add(e.code);
-      this.anyKey = true;
-      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)) {
-        e.preventDefault();
-      }
-    });
-    window.addEventListener('keyup', (e) => {
-      this.down.delete(e.code);
-    });
-    window.addEventListener('blur', () => {
-      this.down.clear();
-    });
-    canvas.addEventListener('mousemove', (e) => {
+    this.mouseClicked = false;
+    this.canvas = canvas;
+    this._onKeyDown = (e) => {
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      if (!this.keys.has(k)) this.pressedKeys.add(k);
+      this.keys.add(k);
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+    };
+    this._onKeyUp = (e) => {
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      this.keys.delete(k);
+    };
+    this._onMouseMove = (e) => {
       const r = canvas.getBoundingClientRect();
-      this.mouseX = e.clientX - r.left;
-      this.mouseY = e.clientY - r.top;
-    });
-    canvas.addEventListener('mousedown', (e) => {
-      if (e.button !== 0) return;
+      this.mouseX = (e.clientX - r.left) * (canvas.width / r.width);
+      this.mouseY = (e.clientY - r.top) * (canvas.height / r.height);
+    };
+    this._onMouseDown = (e) => {
+      this._onMouseMove(e);
       this.mouseDown = true;
-      this.mousePressed = true;
-      this.anyKey = true;
-    });
-    window.addEventListener('mouseup', (e) => {
-      if (e.button !== 0) return;
-      this.mouseDown = false;
-    });
-    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+      this.mouseClicked = true;
+    };
+    this._onMouseUp = () => { this.mouseDown = false; };
+    window.addEventListener('keydown', this._onKeyDown);
+    window.addEventListener('keyup', this._onKeyUp);
+    canvas.addEventListener('mousemove', this._onMouseMove);
+    canvas.addEventListener('mousedown', this._onMouseDown);
+    window.addEventListener('mouseup', this._onMouseUp);
   }
 
-  // True while the key is held down.
-  isDown(code) {
-    return this.down.has(code);
-  }
+  down(key) { return this.keys.has(key); }
+  pressed(key) { return this.pressedKeys.has(key); }
+  consume(key) { this.pressedKeys.delete(key); }
 
-  // True once, on the frame the key went down. Consumed by endFrame.
-  wasPressed(code) {
-    return this.pressed.has(code);
-  }
-
-  // Drop a press so no later system in the same frame sees it.
-  consume(code) {
-    this.pressed.delete(code);
-  }
-
-  // True once, on the frame the left mouse button went down.
-  wasClicked() {
-    return this.mousePressed;
-  }
-
-  // Movement vector from WASD / arrows, normalised, in screen space
-  // (x right, y down). Zero when nothing is held.
-  moveVector() {
-    let x = 0;
-    let y = 0;
-    if (this.down.has('KeyA') || this.down.has('ArrowLeft')) x -= 1;
-    if (this.down.has('KeyD') || this.down.has('ArrowRight')) x += 1;
-    if (this.down.has('KeyW') || this.down.has('ArrowUp')) y -= 1;
-    if (this.down.has('KeyS') || this.down.has('ArrowDown')) y += 1;
-    if (x !== 0 && y !== 0) {
-      const inv = 1 / Math.hypot(x, y);
-      x *= inv;
-      y *= inv;
-    }
+  // WASD / arrow drive + walk axes, each in [-1, 1].
+  axes() {
+    const x = (this.down('d') || this.down('ArrowRight') ? 1 : 0)
+      - (this.down('a') || this.down('ArrowLeft') ? 1 : 0);
+    const y = (this.down('s') || this.down('ArrowDown') ? 1 : 0)
+      - (this.down('w') || this.down('ArrowUp') ? 1 : 0);
     return { x, y };
   }
 
-  // Call once per frame, after the game has read the inputs.
+  // Clear the edge-triggered set at the end of each frame.
   endFrame() {
-    this.pressed.clear();
-    this.mousePressed = false;
-    this.anyKey = false;
+    this.pressedKeys.clear();
+    this.mouseClicked = false;
   }
 }

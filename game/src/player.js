@@ -1,90 +1,109 @@
-// Solmar Bay — the player: Danny, on foot and behind the wheel.
-// Walking, entering and leaving cars, and aiming and shooting.
+// Solmar Bay — the player: walking, entering/exiting cars, shooting, pickups.
+// The player is either on foot (a circle with an aim angle) or driving a car
+// (the car object is the body; the player rides inside it).
 
-import { TUNE } from './config.js';
+import { PLAYER_WALK, PLAYER_RUN, WORLD } from './config.js';
 import { clamp, dist } from './random.js';
-import { resolveCircle } from './world.js';
-import { nearestCar } from './vehicles.js';
+import { collideCircle, insideBuilding } from './world.js';
 
 export function makePlayer(x, y) {
   return {
-    x,
-    y,
+    x, y,
     angle: -Math.PI / 2,
+    aim: -Math.PI / 2,
+    speed: 0,
+    inCar: null, // the car object when driving, else null
     health: 100,
     money: 0,
-    speed: 0,
+    shotCooldown: 0,
+    walking: false,
+    run: false,
   };
 }
 
-// Move on foot: WASD / arrows, pushed out of buildings.
-export function updatePlayer(G, dt) {
-  const input = G.input;
-  const player = G.player;
-
-  if (G.playerCar) return; // driving is handled by vehicles.js
-
-  const mv = input.moveVector();
-  const moving = mv.x !== 0 || mv.y !== 0;
-  if (moving) {
-    player.angle = Math.atan2(mv.y, mv.x);
-    player.speed = TUNE.walkSpeed;
+// Move on foot with input axes; returns true while actually walking.
+export function stepPlayerOnFoot(player, world, ax, ay, dt) {
+  const run = false;
+  const speed = PLAYER_WALK;
+  let mx = ax;
+  let my = ay;
+  const len = Math.hypot(mx, my);
+  if (len > 0.01) {
+    mx /= len; my /= len;
+    player.x += mx * speed * dt;
+    player.y += my * speed * dt;
+    player.angle = Math.atan2(my, mx);
+    player.walking = true;
+    player.speed = speed;
   } else {
+    player.walking = false;
     player.speed = 0;
   }
-  player.x += mv.x * player.speed * dt;
-  player.y += mv.y * player.speed * dt;
-  const fixed = resolveCircle(G.world, player.x, player.y, 12);
+  player.run = run;
+  const fixed = collideCircle(world, player.x, player.y, 13);
   player.x = fixed.x;
   player.y = fixed.y;
+  player.x = clamp(player.x, 16, WORLD - 16);
+  player.y = clamp(player.y, 16, WORLD - 16);
+  if (player.shotCooldown > 0) player.shotCooldown -= dt;
+}
 
-  // Aim with the mouse: the player faces the cursor while aiming.
-  if (G.aiming) {
-    const wx = G.camera.x + (input.mouseX - G.viewW / 2) / G.camera.zoom;
-    const wy = G.camera.y + (input.mouseY - G.viewH / 2) / G.camera.zoom;
-    player.angle = Math.atan2(wy - player.y, wx - player.x);
+// Aim at the mouse (screen coords -> world coords via the camera).
+export function aimAt(player, cam, mouseX, mouseY) {
+  const wx = cam.x + mouseX;
+  const wy = cam.y + mouseY;
+  player.aim = Math.atan2(wy - player.y, wx - player.x);
+}
+
+// Nearest car the player can enter (within 72 px of the player's feet).
+export function nearestEnterableCar(player, cars) {
+  let best = null;
+  let bestD = 72;
+  for (const car of cars) {
+    if (car.isCop) continue;
+    const d = dist(player.x, player.y, car.x, car.y);
+    if (d < bestD) { best = car; bestD = d; }
   }
+  return best;
+}
 
-  // E near a car: get in. Stealing a parked or traffic car is a crime.
-  if (input.wasPressed('KeyE')) {
-    const car = nearestCar(G, 52);
-    if (car) {
-      G.playerCar = car;
-      car.state = 'player';
-      car.speed = 0;
-      if (car.kind !== 'police') {
-        G.stoleCar = true;
-        G.lastCrime = 0;
-        G.lastCrimeReason = 'stole a car';
-        G.wanted = Math.min(100, G.wanted + 15);
-      }
-      G.audio.blip();
+export function enterCar(player, car) {
+  player.inCar = car;
+  car.isPlayer = true;
+  car.speed = 0;
+  player.x = car.x;
+  player.y = car.y;
+}
+
+export function exitCar(player, world) {
+  const car = player.inCar;
+  if (!car) return;
+  car.isPlayer = false;
+  car.speed = 0;
+  // Step out to the side of the car.
+  const sx = car.x + Math.cos(car.angle + Math.PI / 2) * 30;
+  const sy = car.y + Math.sin(car.angle + Math.PI / 2) * 30;
+  if (!insideBuilding(world, sx, sy)) {
+    player.x = sx; player.y = sy;
+  } else {
+    player.x = car.x - Math.cos(car.angle + Math.PI / 2) * 30;
+    player.y = car.y - Math.sin(car.angle + Math.PI / 2) * 30;
+  }
+  player.inCar = null;
+  player.angle = car.angle;
+}
+
+// Collect a pickup (money package) on touch; returns the value collected.
+export function collectPickups(player, pickups) {
+  let gained = 0;
+  const px = player.inCar ? player.inCar.x : player.x;
+  const py = player.inCar ? player.inCar.y : player.y;
+  for (let i = pickups.length - 1; i >= 0; i--) {
+    const p = pickups[i];
+    if (dist(px, py, p.x, p.y) < 34) {
+      gained += p.value;
+      pickups.splice(i, 1);
     }
   }
-}
-
-// Step out of the car onto the road beside it.
-export function exitCar(G) {
-  const car = G.playerCar;
-  if (!car) return;
-  car.state = 'parked';
-  car.speed = 0;
-  const side = car.angle + Math.PI / 2;
-  const px = car.x + Math.cos(side) * 34;
-  const py = car.y + Math.sin(side) * 34;
-  const fixed = resolveCircle(G.world, px, py, 12);
-  G.player.x = fixed.x;
-  G.player.y = fixed.y;
-  G.player.angle = car.angle;
-  G.playerCar = null;
-  G.audio.engine(false, 0);
-  G.audio.blip();
-}
-
-// The mouse aim direction in world space, for shooting.
-export function aimAngle(G) {
-  const input = G.input;
-  const wx = G.camera.x + (input.mouseX - G.viewW / 2) / G.camera.zoom;
-  const wy = G.camera.y + (input.mouseY - G.viewH / 2) / G.camera.zoom;
-  return Math.atan2(wy - G.player.y, wx - G.player.x);
+  return gained;
 }

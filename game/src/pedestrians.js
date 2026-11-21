@@ -1,106 +1,93 @@
-// Solmar Bay — pedestrians: people walking the sidewalks, who run
-// away from gunfire and screeching cars. They give the city life and
-// the wanted system something to react to.
+// Solmar Bay — pedestrians: sidewalk walkers who flee from danger.
+// They stroll along road edges; a gunshot, a crash or a car bearing down on them
+// makes them run away screaming (well, silently — this is a canvas game).
 
-import { GRID, TUNE, PALETTE } from './config.js';
-import { mulberry32, range, int, pick, clamp, dist } from './random.js';
-import { randomSidewalkPoint, resolveCircle } from './world.js';
+import { PALETTE, WORLD } from './config.js';
+import { clamp, dist, makeRng } from './random.js';
+import { isRoad, randomRoadPoint } from './world.js';
 
-const PED_COLORS = [PALETTE.pedA, PALETTE.pedB, PALETTE.pedC, PALETTE.pedD];
+let nextPedId = 1;
 
-export function makePed(x, y, rng) {
+export function makePed(rng, x, y) {
   return {
-    x,
-    y,
-    angle: rng() * Math.PI * 2,
-    speed: range(rng, TUNE.pedSpeed * 0.7, TUNE.pedSpeed * 1.3),
-    color: pick(rng, PED_COLORS),
-    state: 'walk', // walk | flee
+    id: nextPedId++,
+    x, y,
+    angle: rng.range(0, Math.PI * 2),
+    speed: rng.range(28, 52),
     target: null,
-    fleeTimer: 0,
-    bob: rng() * Math.PI * 2,
+    color: rng.pick(PALETTE.ped),
+    fleeing: 0,
+    fleeX: 0,
+    fleeY: 0,
+    walkPhase: rng.range(0, Math.PI * 2),
+    panic: 0,
   };
 }
 
-// Seed the starting crowd.
-export function seedPeds(G) {
-  const rng = mulberry32(G.seed + 31);
-  G.peds = [];
-  for (let i = 0; i < 42; i += 1) {
-    const p = randomSidewalkPoint(rng, G.world);
-    G.peds.push(makePed(p.x, p.y, rng));
+export function spawnPeds(rng, count, cx, cy) {
+  const peds = [];
+  for (let i = 0; i < count; i++) {
+    const p = randomRoadPoint(rng, cx, cy, 900);
+    peds.push(makePed(rng, p.x, p.y));
   }
+  return peds;
 }
 
-// Keep the crowd near the player: spawn ahead, remove far behind.
-export function maintainPeds(G, dt) {
-  G.pedTimer -= dt;
-  if (G.peds.length < 34 && G.pedTimer <= 0) {
-    G.pedTimer = 0.9;
-    const p = randomSidewalkPoint(G.rng, G.world);
-    if (dist(p.x, p.y, G.player.x, G.player.y) < 420) return;
-    if (dist(p.x, p.y, G.player.x, G.player.y) > 1100) return;
-    G.peds.push(makePed(p.x, p.y, G.rng));
-  }
-  for (let i = G.peds.length - 1; i >= 0; i -= 1) {
-    const ped = G.peds[i];
-    if (dist(ped.x, ped.y, G.player.x, G.player.y) > 1400) {
-      G.peds.splice(i, 1);
+// A danger at (x, y) with the given radius makes nearby peds flee.
+export function scarePeds(peds, x, y, radius) {
+  for (const p of peds) {
+    if (dist(p.x, p.y, x, y) < radius) {
+      p.fleeing = 2.5;
+      p.panic = 1;
+      const dx = p.x - x;
+      const dy = p.y - y;
+      const d = Math.max(1, Math.sqrt(dx * dx + dy * dy));
+      p.fleeX = p.x + (dx / d) * 300;
+      p.fleeY = p.y + (dy / d) * 300;
     }
   }
 }
 
-// A nearby threat (a gunshot, a fast car) makes peds run away.
-export function senseThreat(G, x, y, radius) {
-  for (const ped of G.peds) {
-    if (dist(ped.x, ped.y, x, y) < radius) {
-      ped.state = 'flee';
-      ped.fleeTimer = 2.5;
-      ped.angle = Math.atan2(ped.y - y, ped.x - x);
-    }
-  }
-}
-
-export function updatePeds(G, dt) {
-  for (const ped of G.peds) {
-    ped.bob += dt * 7;
-    if (ped.state === 'flee') {
-      ped.fleeTimer -= dt;
-      const speed = TUNE.pedFleeSpeed;
-      ped.x += Math.cos(ped.angle) * speed * dt;
-      ped.y += Math.sin(ped.angle) * speed * dt;
-      if (ped.fleeTimer <= 0) ped.state = 'walk';
+export function stepPeds(peds, rng, dt, danger) {
+  for (const p of peds) {
+    p.walkPhase += dt * 8;
+    if (danger) scarePeds([p], danger.x, danger.y, danger.r);
+    let tx;
+    let ty;
+    let speed = p.speed;
+    if (p.fleeing > 0) {
+      p.fleeing -= dt;
+      tx = p.fleeX;
+      ty = p.fleeY;
+      speed = 150;
+      if (dist(p.x, p.y, tx, ty) < 30) p.fleeing = 0;
     } else {
-      // Wander: pick a new sidewalk target when the old one is reached.
-      if (!ped.target || dist(ped.x, ped.y, ped.target.x, ped.target.y) < 24) {
-        ped.target = randomSidewalkPoint(G.rng, G.world);
+      if (!p.target || dist(p.x, p.y, p.target.x, p.target.y) < 24) {
+        p.target = randomRoadPoint(rng, p.x, p.y, 420);
       }
-      const want = Math.atan2(ped.target.y - ped.y, ped.target.x - ped.x);
-      let diff = want - ped.angle;
-      while (diff > Math.PI) diff -= Math.PI * 2;
-      while (diff < -Math.PI) diff += Math.PI * 2;
-      ped.angle += clamp(diff, -2.4 * dt, 2.4 * dt);
-      ped.x += Math.cos(ped.angle) * ped.speed * dt;
-      ped.y += Math.sin(ped.angle) * ped.speed * dt;
+      tx = p.target.x;
+      ty = p.target.y;
     }
-    const fixed = resolveCircle(G.world, ped.x, ped.y, 11);
-    ped.x = fixed.x;
-    ped.y = fixed.y;
+    const dx = tx - p.x;
+    const dy = ty - p.y;
+    const d = Math.max(0.001, Math.sqrt(dx * dx + dy * dy));
+    p.angle = Math.atan2(dy, dx);
+    p.x += (dx / d) * speed * dt;
+    p.y += (dy / d) * speed * dt;
+    p.x = clamp(p.x, 30, WORLD - 30);
+    p.y = clamp(p.y, 30, WORLD - 30);
+    p.panic = Math.max(0, p.panic - dt * 0.4);
   }
+}
 
-  // The player's car running a ped over is a crime, and the ped is gone.
-  if (G.playerCar && Math.abs(G.playerCar.speed) > 60) {
-    for (let i = G.peds.length - 1; i >= 0; i -= 1) {
-      const ped = G.peds[i];
-      if (dist(ped.x, ped.y, G.playerCar.x, G.playerCar.y) < 26) {
-        G.peds.splice(i, 1);
-        G.lastCrime = 0;
-        G.lastCrimeReason = 'hit a pedestrian';
-        G.wanted = Math.min(100, G.wanted + 25);
-        G.shake = Math.max(G.shake, 6);
-        G.audio.thud();
-        senseThreat(G, ped.x, ped.y, 320);
-      }
+// A pedestrian hit by a car: they fall (removed) and the driver committed a crime.
+export function checkPedHitByCar(peds, car) {
+  for (let i = peds.length - 1; i >= 0; i--) {
+    const p = peds[i];
+    if (Math.abs(car.speed) > 60 && dist(p.x, p.y, car.x, car.y) < 30) {
+      peds.splice(i, 1);
+      return p;
     }
   }
+  return null;
 }
